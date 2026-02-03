@@ -1,6 +1,4 @@
-"""
-Agente LLM para análise inteligente de dados SCADA
-"""
+"Agente LLM para análise inteligente de dados SCADA"
 import logging
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass, field
@@ -22,7 +20,7 @@ class Message:
 
 class LLMAgent:
     """
-    Agente inteligente que usa Claude para análise de dados SCADA.
+    Agente inteligente que usa LLM (Claude ou Gemini) para análise de dados SCADA.
     
     Uso:
         agent = LLMAgent(config, collector)
@@ -39,32 +37,73 @@ class LLMAgent:
         self.collector = collector
         self.conversation_history: List[Message] = []
         self._client = None
+        self._gemini_model = None
         
-        # Verifica se a biblioteca anthropic está disponível
-        self._anthropic_available = self._check_anthropic()
+        # Verifica bibliotecas disponíveis
+        self._anthropic_available = False
+        self._gemini_available = False
+        self._check_dependencies()
     
-    def _check_anthropic(self) -> bool:
-        """Verifica se a biblioteca anthropic está instalada"""
+    def _check_dependencies(self):
+        """Verifica quais bibliotecas de LLM estão instaladas"""
         try:
             import anthropic
-            return True
+            self._anthropic_available = True
         except ImportError:
-            logger.warning("Biblioteca 'anthropic' não instalada. Instale com: pip install anthropic")
-            return False
+            pass
+            
+        try:
+            import google.generativeai as genai
+            self._gemini_available = True
+        except ImportError:
+            pass
+            
+        if self.config.provider == "anthropic" and not self._anthropic_available:
+            logger.warning("Provedor configurado como 'anthropic', mas biblioteca não encontrada.")
+        elif self.config.provider == "gemini" and not self._gemini_available:
+            logger.warning("Provedor configurado como 'gemini', mas biblioteca 'google-generativeai' não encontrada.")
     
-    def _get_client(self):
+    def _get_anthropic_client(self):
         """Obtém ou cria cliente Anthropic"""
         if not self._anthropic_available:
-            raise RuntimeError("Biblioteca 'anthropic' não disponível")
+            raise RuntimeError("Biblioteca 'anthropic' não disponível. Instale com: pip install anthropic")
         
         if not self.config.api_key:
-            raise ValueError("API key não configurada. Defina ANTHROPIC_API_KEY ou configure manualmente.")
+            raise ValueError("API key não configurada para Anthropic.")
         
         if self._client is None:
             import anthropic
             self._client = anthropic.Anthropic(api_key=self.config.api_key)
         
         return self._client
+
+    def _get_gemini_model(self):
+        """Obtém ou configura modelo Gemini"""
+        if not self._gemini_available:
+            raise RuntimeError("Biblioteca 'google-generativeai' não disponível. Instale com: pip install google-generativeai")
+        
+        if not self.config.api_key:
+            raise ValueError("API key não configurada para Gemini.")
+            
+        if self._gemini_model is None:
+            import google.generativeai as genai
+            genai.configure(api_key=self.config.api_key)
+            
+            # Configuração do modelo
+            generation_config = {
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "top_k": 40,
+                "max_output_tokens": self.config.max_tokens,
+            }
+            
+            self._gemini_model = genai.GenerativeModel(
+                model_name=self.config.model,
+                generation_config=generation_config,
+                system_instruction=self.config.system_prompt
+            )
+            
+        return self._gemini_model
     
     def _build_context(self) -> str:
         """Constrói contexto com dados atuais do SCADA"""
@@ -97,12 +136,23 @@ class LLMAgent:
         
         return "\n".join(parts)
     
-    def _format_messages_for_api(self) -> List[Dict[str, str]]:
-        """Formata histórico de conversação para a API"""
+    def _format_messages_for_anthropic(self) -> List[Dict[str, str]]:
+        """Formata histórico para Anthropic"""
         return [
             {"role": msg.role, "content": msg.content}
-            for msg in self.conversation_history[-10:]  # Últimas 10 mensagens
+            for msg in self.conversation_history[-10:]
         ]
+
+    def _format_history_for_gemini(self) -> List[Dict[str, Any]]:
+        """Formata histórico para Gemini"""
+        gemini_history = []
+        for msg in self.conversation_history[-10:]:
+            role = "user" if msg.role == "user" else "model"
+            gemini_history.append({
+                "role": role,
+                "parts": [msg.content]
+            })
+        return gemini_history
     
     def ask(self, question: str, include_context: bool = True) -> str:
         """
@@ -115,7 +165,7 @@ class LLMAgent:
         Returns:
             Resposta do agente
         """
-        # Monta a mensagem do usuário
+        # Monta a mensagem do usuário com contexto
         if include_context and self.collector:
             context = self._build_context()
             full_question = f"""Dados atuais do SCADA:
@@ -125,30 +175,52 @@ Pergunta do operador: {question}"""
         else:
             full_question = question
         
-        # Adiciona ao histórico
+        # Adiciona mensagem do usuário ao histórico interno (sempre role 'user')
         self.conversation_history.append(Message(role="user", content=full_question))
         
         try:
-            client = self._get_client()
-            
-            response = client.messages.create(
-                model=self.config.model,
-                max_tokens=self.config.max_tokens,
-                system=self.config.system_prompt,
-                messages=self._format_messages_for_api()
-            )
-            
-            assistant_message = response.content[0].text
-            
-            # Adiciona resposta ao histórico
-            self.conversation_history.append(Message(role="assistant", content=assistant_message))
-            
-            return assistant_message
-            
+            if self.config.provider == "gemini":
+                return self._ask_gemini(full_question)
+            else:
+                return self._ask_anthropic()
+                
         except Exception as e:
-            error_msg = f"Erro ao consultar LLM: {str(e)}"
+            error_msg = f"Erro ao consultar LLM ({self.config.provider}): {str(e)}"
             logger.error(error_msg)
             return error_msg
+
+    def _ask_anthropic(self) -> str:
+        client = self._get_anthropic_client()
+        
+        response = client.messages.create(
+            model=self.config.model,
+            max_tokens=self.config.max_tokens,
+            system=self.config.system_prompt,
+            messages=self._format_messages_for_anthropic()
+        )
+        
+        assistant_message = response.content[0].text
+        self.conversation_history.append(Message(role="assistant", content=assistant_message))
+        return assistant_message
+
+    def _ask_gemini(self, current_prompt: str) -> str:
+        model = self._get_gemini_model()
+        
+        # Para o Gemini, o histórico é passado separadamente da mensagem atual
+        # Mas precisamos ter cuidado para não duplicar a mensagem atual no histórico
+        # se usarmos o chat session object.
+        # Aqui, vamos usar a abordagem stateless (generate_content) passando o histórico construído,
+        # ou iniciar um chat. A abordagem chat é mais limpa.
+        
+        # Pega o histórico ANTES da mensagem atual (que já foi adicionada em `ask`)
+        previous_history = self._format_history_for_gemini()[:-1] 
+        
+        chat = model.start_chat(history=previous_history)
+        response = chat.send_message(current_prompt)
+        
+        assistant_message = response.text
+        self.conversation_history.append(Message(role="assistant", content=assistant_message))
+        return assistant_message
     
     def analyze_current_state(self) -> str:
         """Solicita análise completa do estado atual"""
@@ -209,7 +281,8 @@ class MockLLMAgent(LLMAgent):
     def __init__(self, collector: DataCollector = None):
         # Inicializa com config vazia
         super().__init__(LLMConfig(), collector)
-        self._anthropic_available = True  # Finge que está disponível
+        self._anthropic_available = True 
+        self._gemini_available = True
     
     def ask(self, question: str, include_context: bool = True) -> str:
         """Retorna resposta simulada"""
@@ -265,7 +338,7 @@ Recomendo verificar os logs do SCADA para mais detalhes."""
         return "[MOCK] A vazão é controlada principalmente pela frequência do inversor e posição da válvula CV."
     
     def _mock_generic_response(self) -> str:
-        return "[MOCK] Esta é uma resposta simulada. Configure a API key do Anthropic para respostas reais do Claude."
+        return "[MOCK] Esta é uma resposta simulada. Configure a API key do Anthropic ou Gemini para respostas reais."
 
 
 def create_agent(
@@ -277,16 +350,29 @@ def create_agent(
     Factory function para criar agente.
     
     Args:
-        api_key: Chave da API Anthropic
+        api_key: Chave da API (Anthropic ou Gemini)
         collector: Coletor de dados SCADA
         use_mock: Se True, usa agente mock (sem API)
         
     Returns:
         LLMAgent ou MockLLMAgent
     """
-    if use_mock or not api_key:
-        logger.info("Usando agente mock (sem API key)")
+    if use_mock:
+        logger.info("Usando agente mock (solicitado explicitamente)")
+        return MockLLMAgent(collector)
+        
+    if not api_key:
+        # Tenta pegar da config global
+        from .config import config
+        api_key = config.llm.api_key
+        
+    if not api_key:
+        logger.info("Usando agente mock (sem API key encontrada)")
         return MockLLMAgent(collector)
     
-    config = LLMConfig(api_key=api_key)
-    return LLMAgent(config, collector)
+    # Se chegamos aqui, temos uma API key. A classe LLMAgent vai decidir
+    # qual provedor usar baseada na configuração.
+    # Note que passamos a key via config object na inicialização da classe
+    config_obj = LLMConfig(api_key=api_key)
+    
+    return LLMAgent(config_obj, collector)

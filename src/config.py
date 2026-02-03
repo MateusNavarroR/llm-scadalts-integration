@@ -2,15 +2,16 @@
 Configurações centralizadas do projeto SCADA Agent
 """
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Dict
 
 @dataclass
 class ScadaConfig:
     """Configurações de conexão com SCADA-LTS"""
-    base_url: str = "http://localhost:8080/Scada-LTS"
-    username: str = "Lenhs"
-    password: str = "123456"
+    base_url: str = ""
+    username: str = ""
+    password: str = ""
     timeout: int = 5
     
     @property
@@ -23,19 +24,25 @@ class ScadaConfig:
     def get_write_url(self, xid: str, data_type: int, value: float) -> str:
         return f"{self.base_url}/api/point_value/setValue/{xid}/{data_type}/{value}"
 
+    def validate(self):
+        """Verifica se a configuração mínima existe"""
+        missing = []
+        if not self.base_url: missing.append("SCADA_BASE_URL")
+        if not self.username: missing.append("SCADA_USER")
+        if not self.password: missing.append("SCADA_PASSWORD")
+        
+        if missing:
+            print(f"❌ ERRO CRÍTICO: Configurações obrigatórias ausentes no .env: {', '.join(missing)}")
+            print("   Por favor, configure o arquivo .env baseando-se no .env.example")
+            sys.exit(1)
+
 
 @dataclass
 class PointsConfig:
     """Configuração dos pontos de dados (XIDs)"""
     # Mapeamento: nome amigável -> XID
-    points: Dict[str, str] = field(default_factory=lambda: {
-        "cv": "DP_851894",           # Válvula de controle
-        "freq1": "DP_693642",        # Frequência inversor 1
-        "freq2": "DP_XXXXXX",        # Frequência inversor 2 (AJUSTAR!)
-        "pt1": "DP_155700",          # Pressão transmissor 1
-        "pt2": "DP_719779",          # Pressão transmissor 2
-        "ft1": "DP_041666",          # Vazão
-    })
+    # Agora carrega vazio por padrão, preenchido via env
+    points: Dict[str, str] = field(default_factory=dict)
     
     # Tipos de dados para escrita
     data_types: Dict[str, int] = field(default_factory=lambda: {
@@ -47,7 +54,7 @@ class PointsConfig:
     
     def get_xid(self, name: str) -> str:
         """Retorna XID pelo nome amigável"""
-        return self.points.get(name, name)  # Retorna o próprio nome se não encontrar
+        return self.points.get(name, name)
 
 
 @dataclass
@@ -69,36 +76,65 @@ class CollectorConfig:
 class LLMConfig:
     """Configurações do agente LLM"""
     api_key: str = ""
-    model: str = "claude-sonnet-4-20250514"
-    max_tokens: int = 1024
+    provider: str = ""  # "anthropic" ou "gemini"
+    model: str = ""     # Definido automaticamente ou via env
+    max_tokens: int = 4096
     
-    # Prompt do sistema para o agente
-    system_prompt: str = """Você é um assistente especializado em sistemas SCADA e automação industrial.
-Você está conectado a um sistema SCADA-LTS que monitora uma planta com:
-- Bomba com inversor de frequência (controlável)
-- Válvula de controle (CV)
-- Sensores de pressão (PT1, PT2)
-- Medidor de vazão (FT1)
+    # Prompt do sistema para o agente (Conciso e Direto)
+    system_prompt: str = """Você é um Engenheiro de Automação Sênior analisando um sistema SCADA.
 
-Suas responsabilidades:
-1. Analisar dados dos sensores em tempo real
-2. Identificar anomalias ou tendências preocupantes
-3. Sugerir ajustes operacionais quando apropriado
-4. Explicar o comportamento do sistema de forma clara
-5. Alertar sobre possíveis problemas
+DIRETRIZ: SEJA EXTREMAMENTE CONCISO E DENSO EM INFORMAÇÃO.
+- NÃO repita a lista de valores brutos (o operador já viu isso no painel).
+- NÃO explique o óbvio (ex: "800MHz é alto"). Apenas aponte a anomalia.
+- FOCUE SOMENTE NA CORRELAÇÃO e no DIAGNÓSTICO.
 
-Ao receber dados, analise-os considerando:
-- Relações entre pressão e vazão
-- Comportamento esperado vs observado
-- Tendências ao longo do tempo
-- Limites operacionais seguros
+ESTILO (SEM MARKDOWN):
+- Use apenas texto puro e hifens para listas.
+- Respostas curtas, estilo "Log Operacional".
 
-Seja conciso mas informativo. Use unidades SI quando aplicável."""
+CONTEXTO:
+- Atuadores: Bomba (Freq) e Válvula (CV).
+- Sensores: Pressão (PT1/PT2) e Vazão (FT1).
+
+AO RESPONDER:
+1. STATUS: Uma linha (NORMAL / ALERTA / CRÍTICO).
+2. ANÁLISE: Pontos principais relacionando as variáveis (ex: "Sem vazão apesar do comando da bomba").
+3. AÇÃO: O que verificar fisicamente (ex: "Checar acoplamento da bomba").
+
+Se os dados estiverem normais, responda em no máximo 3 linhas."""
 
     def __post_init__(self):
-        # Tenta carregar API key do ambiente se não fornecida
-        if not self.api_key:
-            self.api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        # Tenta carregar API keys do ambiente
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        gemini_key = os.environ.get("GEMINI_API_KEY", "")
+        
+        # 1. Prioridade: Chave manual (passada no construtor)
+        if self.api_key:
+            pass # Mantém o que veio
+            
+        # 2. Prioridade: Chave Gemini no Env
+        elif gemini_key:
+            self.api_key = gemini_key
+            self.provider = "gemini"
+            
+        # 3. Prioridade: Chave Anthropic no Env
+        elif anthropic_key:
+            self.api_key = anthropic_key
+            self.provider = "anthropic"
+            
+        # CORREÇÃO DE SEGURANÇA: Garante o provedor correto baseado no formato da chave
+        if self.api_key and self.api_key.startswith("AIza"):
+            self.provider = "gemini"
+        elif self.api_key and self.api_key.startswith("sk-ant"):
+            self.provider = "anthropic"
+
+        # Define modelo padrão se ainda não definido
+        if not self.model and self.provider:
+            if self.provider == "gemini":
+                # Modelo que validamos no debug_gemini.py
+                self.model = "gemini-2.5-flash"
+            else:
+                self.model = "claude-sonnet-4-20250514"
 
 
 @dataclass
@@ -114,18 +150,38 @@ class AppConfig:
         """Carrega configurações do ambiente"""
         config = cls()
         
-        # Override com variáveis de ambiente se existirem
-        if url := os.environ.get("SCADA_BASE_URL"):
-            config.scada.base_url = url
-        if user := os.environ.get("SCADA_USER"):
-            config.scada.username = user
-        if pwd := os.environ.get("SCADA_PASSWORD"):
-            config.scada.password = pwd
-        if key := os.environ.get("ANTHROPIC_API_KEY"):
-            config.llm.api_key = key
-            
+        # 1. SCADA Config
+        config.scada.base_url = os.environ.get("SCADA_BASE_URL", "http://localhost:8080/Scada-LTS")
+        config.scada.username = os.environ.get("SCADA_USER", "")
+        config.scada.password = os.environ.get("SCADA_PASSWORD", "")
+        
+        # Valida credenciais críticas
+        config.scada.validate()
+        
+        # 2. Points Config (Carregamento Dinâmico)
+        # Procura por todas as variáveis que começam com POINT_
+        env_points = {}
+        
+        # Pontos padrão conhecidos (fallback ou obrigatórios)
+        known_points = {
+            "cv": os.environ.get("POINT_CV", "DP_453792"),
+            "freq1": os.environ.get("POINT_FREQ1", "DP_721172"),
+            "pt1": os.environ.get("POINT_PT1", "DP_602726"),
+            "pt2": os.environ.get("POINT_PT2", "DP_220578"),
+            "ft1": os.environ.get("POINT_FT1", "DP_805576"),
+        }
+        
+        # Adiciona pontos extras do env (POINT_BOMBA2=DP_999)
+        for key, value in os.environ.items():
+            if key.startswith("POINT_") and key not in ["POINT_CV", "POINT_FREQ1", "POINT_PT1", "POINT_PT2", "POINT_FT1"]:
+                # Converte POINT_NOME_EXTRA -> nome_extra
+                name = key[6:].lower()
+                known_points[name] = value
+                
+        config.points.points = known_points
+        
         return config
 
 
-# Instância global de configuração (pode ser sobrescrita)
+# Instância global
 config = AppConfig.from_env()
