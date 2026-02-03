@@ -118,7 +118,9 @@ class ScadaClient:
             
             if response.status_code == 200:
                 data = response.json()
-                value = float(data.get("value", 0))
+                # Garante que None seja tratado como 0
+                raw_value = data.get("value")
+                value = float(raw_value) if raw_value is not None else 0.0
                 
                 return PointValue(
                     xid=xid,
@@ -132,7 +134,9 @@ class ScadaClient:
                 return None
                 
         except ValueError as e:
-            self._last_error = f"Erro ao converter valor de {xid}: {e}"
+            # Captura o início da resposta para debug (provavelmente HTML de erro)
+            preview = response.text[:200].replace('\n', ' ')
+            self._last_error = f"Erro ao converter valor de {xid}: {e}. Resposta bruta: {preview}..."
             logger.warning(self._last_error)
             return None
         except requests.exceptions.RequestException as e:
@@ -239,9 +243,9 @@ class ScadaClient:
 
 # Função auxiliar para uso rápido
 def create_client(
-    base_url: str = "http://localhost:8080/Scada-LTS",
-    username: str = "Lenhs",
-    password: str = "123456"
+    base_url: str = "",
+    username: str = "",
+    password: str = ""
 ) -> ScadaClient:
     """Cria um cliente SCADA com configurações básicas"""
     config = ScadaConfig(base_url=base_url, username=username, password=password)
