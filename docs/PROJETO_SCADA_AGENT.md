@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em LLM (Claude), permitindo análise em tempo real de dados de sensores, diagnósticos automatizados e interação conversacional com o sistema.
+Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em LLM (Google Gemini ou Anthropic Claude), permitindo análise em tempo real de dados de sensores, diagnósticos automatizados e interação conversacional com o sistema via terminal.
 
 ---
 
@@ -10,11 +10,9 @@ Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em L
 
 1. [Arquitetura do Sistema](#arquitetura-do-sistema)
 2. [Estrutura do Projeto](#estrutura-do-projeto)
-3. [Componentes](#componentes)
-4. [Configuração](#configuração)
-5. [Uso](#uso)
-6. [Roadmap](#roadmap)
-7. [Referências da API SCADA-LTS](#referências-da-api-scada-lts)
+3. [Configuração](#configuração)
+4. [Uso](#uso)
+5. [Referências da API SCADA-LTS](#referências-da-api-scada-lts)
 
 ---
 
@@ -33,8 +31,8 @@ Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em L
 │         │                   │                   │               │
 │         ▼                   ▼                   ▼               │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
-│  │  SCADA-LTS   │    │   Buffer/    │    │   Claude     │       │
-│  │    API       │    │   Histórico  │    │    API       │       │
+│  │  SCADA-LTS   │    │   Buffer/    │    │   LLM API    │       │
+│  │    API       │    │   Histórico  │    │(Gemini/Claude)│      │
 │  └──────────────┘    └──────────────┘    └──────────────┘       │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -42,10 +40,10 @@ Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em L
 
 ### Fluxo de Dados
 
-1. **Aquisição**: `ScadaClient` conecta ao SCADA-LTS via API REST
-2. **Coleta**: `DataCollector` armazena leituras em buffer temporal
-3. **Análise**: `LLMAgent` recebe dados formatados e responde consultas
-4. **Interação**: Usuário interage via terminal (futuro: GUI)
+1. **Aquisição**: `ScadaClient` conecta ao SCADA-LTS via API REST.
+2. **Coleta**: `DataCollector` armazena leituras em buffer temporal circular.
+3. **Análise**: `LLMAgent` recebe dados formatados e responde consultas usando prompts de engenharia especializados.
+4. **Interação**: Usuário interage via terminal com comandos ou linguagem natural.
 
 ---
 
@@ -59,122 +57,79 @@ scada_agent_project/
 │   ├── __init__.py
 │   ├── scada_client.py           # Cliente de comunicação SCADA-LTS
 │   ├── data_collector.py         # Coletor de dados com buffer
-│   ├── llm_agent.py              # Agente inteligente (Claude)
-│   └── config.py                 # Configurações centralizadas
-├── tests/
-│   └── test_integration.py       # Testes de integração
+│   ├── llm_agent.py              # Agente inteligente (Gemini/Claude)
+│   └── config.py                 # Configurações centralizadas e validação
+├── pyproject.toml                # Dependências (gerenciado pelo uv)
 ├── main.py                       # Ponto de entrada da aplicação
-├── requirements.txt              # Dependências Python
-└── .env.example                  # Exemplo de variáveis de ambiente
+├── debug_gemini.py               # Diagnóstico de modelos Gemini
+├── test_read_write.py            # Teste manual de sensores
+└── .env.example                  # Template de variáveis de ambiente
 ```
-
----
-
-## 🧩 Componentes
-
-### 1. ScadaClient (`scada_client.py`)
-
-Responsável pela comunicação direta com a API do SCADA-LTS.
-
-**Funcionalidades:**
-- Autenticação e gerenciamento de sessão
-- Leitura de pontos (sensores)
-- Escrita de pontos (atuadores)
-- Tratamento de erros e reconexão
-
-**Endpoints utilizados:**
-| Operação | Endpoint |
-|----------|----------|
-| Login | `GET /api/auth/{user}/{password}` |
-| Leitura | `GET /api/point_value/getValue/{xid}` |
-| Escrita | `POST /api/point_value/setValue/{xid}/{type}/{value}` |
-
-### 2. DataCollector (`data_collector.py`)
-
-Gerencia a coleta periódica e armazenamento de dados.
-
-**Funcionalidades:**
-- Coleta em background (thread separada)
-- Buffer circular com histórico configurável
-- Estatísticas (média, min, max, tendência)
-- Export para DataFrame/Excel
-
-### 3. LLMAgent (`llm_agent.py`)
-
-Interface com o modelo Claude para análise inteligente.
-
-**Funcionalidades:**
-- Formatação de contexto com dados do SCADA
-- Histórico de conversação
-- Prompts especializados para análise de processo
-- Diagnóstico e recomendações
 
 ---
 
 ## ⚙️ Configuração
 
-### Variáveis de Ambiente
+### Variáveis de Ambiente (`.env`)
 
-Criar arquivo `.env` na raiz do projeto:
+A configuração é feita exclusivamente via variáveis de ambiente para segurança e flexibilidade.
 
 ```env
 # SCADA-LTS
 SCADA_BASE_URL=http://localhost:8080/Scada-LTS
-SCADA_USER=Lenhs
-SCADA_PASSWORD=123456
+SCADA_USER=admin
+SCADA_PASSWORD=sua_senha_segura
 
-# Anthropic API
-ANTHROPIC_API_KEY=sua_chave_aqui
+# LLM (Escolha um)
+GEMINI_API_KEY=AIzaSy...       # Para Google Gemini
+# ANTHROPIC_API_KEY=sk-ant...  # Para Claude
 
-# Configurações de Coleta
-SAMPLE_RATE_HZ=1.0
-BUFFER_SIZE_SECONDS=300
+# Pontos de Dados (Mapeamento XID)
+POINT_CV=DP_123456
+POINT_FREQ1=DP_789012
+POINT_PT1=DP_345678
+POINT_PT2=DP_901234
+POINT_FT1=DP_567890
 ```
 
 ### Pontos de Dados (XIDs)
 
-| Variável | XID | Descrição |
-|----------|-----|-----------|
-| CV (Válvula) | DP_851894 | Posição da válvula de controle |
-| Frequência | DP_693642 | Frequência do inversor |
-| PT1 | DP_155700 | Pressão transmissor 1 |
-| PT2 | DP_719779 | Pressão transmissor 2 |
-| FT1 | DP_041666 | Vazão (medidor de fluxo) |
+O sistema espera 5 pontos principais por padrão, mas você pode adicionar outros no `.env` prefixando com `POINT_`.
+
+| Variável Config | Descrição |
+|-----------------|-----------|
+| `POINT_CV` | Posição da válvula de controle (%) |
+| `POINT_FREQ1` | Frequência do inversor (Hz) |
+| `POINT_PT1` | Pressão Montante |
+| `POINT_PT2` | Pressão Jusante |
+| `POINT_FT1` | Vazão (Fluxo) |
 
 ---
 
 ## 🚀 Uso
 
-### Instalação
+### Instalação (via uv)
 
 ```bash
-# Clonar/criar projeto
-cd scada_agent_project
+# Instalar uv (se necessário)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Criar ambiente virtual
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou: venv\Scripts\activate  # Windows
-
-# Instalar dependências
-pip install -r requirements.txt
-
-# Configurar variáveis de ambiente
+# Configurar ambiente
 cp .env.example .env
-# Editar .env com suas configurações
+# Edite o .env com seus dados!
 ```
 
 ### Execução
 
 ```bash
 # Modo interativo (terminal)
-python main.py
+uv run main.py
 
 # Apenas coleta de dados (sem agente)
-python main.py --collect-only
+uv run main.py --collect-only
 
-# Teste de conexão
-python main.py --test-connection
+# Teste de conexão e leitura
+uv run main.py --test-connection
 ```
 
 ### Comandos do Agente
@@ -183,56 +138,20 @@ Durante a execução interativa:
 
 | Comando | Descrição |
 |---------|-----------|
-| `status` | Mostra leituras atuais dos sensores |
+| `status` | Mostra leituras atuais dos sensores (bruto) |
 | `historico` | Exibe últimas N leituras |
-| `analise` | Solicita análise do agente |
+| `analise` | Solicita análise técnica detalhada do agente |
+| `diagnostico <sintoma>` | Solicita diagnóstico específico |
 | `exportar` | Salva dados em Excel |
 | `sair` | Encerra a aplicação |
 
 Ou faça perguntas em linguagem natural:
 - "Qual a vazão atual?"
-- "A pressão está estável?"
-- "O que pode estar causando essa queda de pressão?"
-
----
-
-## 🗺️ Roadmap
-
-### Fase 1: Backend Básico ✅ (Atual)
-- [x] Cliente SCADA-LTS
-- [x] Coletor de dados
-- [x] Integração básica com Claude
-- [x] Interface de terminal
-
-### Fase 2: Melhorias do Agente
-- [ ] Prompts especializados para diagnóstico
-- [ ] Detecção de anomalias
-- [ ] Histórico de conversação persistente
-- [ ] Ações automatizadas (com confirmação)
-
-### Fase 3: Interface Gráfica
-- [ ] Dashboard com gráficos em tempo real
-- [ ] Chat integrado
-- [ ] Alertas visuais
-- [ ] Configuração via GUI
-
-### Fase 4: Recursos Avançados
-- [ ] Banco de dados para histórico longo
-- [ ] Múltiplos agentes especializados
-- [ ] Integração com alarmes do SCADA
-- [ ] API REST própria
+- "Analise a eficiência da bomba considerando a pressão atual."
 
 ---
 
 ## 📚 Referências da API SCADA-LTS
-
-### Autenticação
-
-```http
-GET /Scada-LTS/api/auth/{username}/{password}
-```
-
-Retorna cookie de sessão para requisições subsequentes.
 
 ### Leitura de Ponto
 
@@ -245,7 +164,7 @@ GET /Scada-LTS/api/point_value/getValue/{xid}
 {
   "value": "25.5",
   "ts": 1699876543000,
-  "status": "OK"
+  "annotation": null
 }
 ```
 
@@ -267,40 +186,15 @@ POST /Scada-LTS/api/point_value/setValue/{xid}/{dataType}/{value}
 
 ## 🔧 Troubleshooting
 
-### Erro de conexão com SCADA-LTS
+### Erro 404 (Models not found)
+Verifique se a versão da biblioteca `google-generativeai` está atualizada (`>=0.7.0`) e se sua chave tem acesso ao modelo configurado (`gemini-2.5-flash`). Use `uv run debug_gemini.py` para listar seus modelos disponíveis.
 
-1. Verificar se o servidor está rodando
-2. Confirmar URL e porta
-3. Testar login manualmente no navegador
-4. Verificar firewall
-
-### Erro na API do Claude
-
-1. Verificar se a chave API está configurada
-2. Confirmar saldo/limites da conta
-3. Verificar conectividade com internet
-
-### Dados inconsistentes
-
-1. Verificar XIDs dos pontos
-2. Confirmar tipos de dados
-3. Verificar se sensores estão online no SCADA
+### Erro de Conexão SCADA
+1. Verifique se o servidor está rodando.
+2. Confirme URL e porta no `.env`.
+3. Teste login manualmente no navegador.
+4. Rode `uv run test_read_write.py` para isolar o problema.
 
 ---
 
-## 📝 Notas de Desenvolvimento
-
-- **Thread Safety**: O `DataCollector` usa locks para acesso thread-safe ao buffer
-- **Reconexão**: O `ScadaClient` tenta reconectar automaticamente em caso de falha
-- **Rate Limiting**: Respeitar limites da API do Claude (verificar plano)
-- **Logging**: Usar módulo `logging` para debug e auditoria
-
----
-
-## 👥 Contribuição
-
-Este é um projeto em desenvolvimento. Sugestões e melhorias são bem-vindas!
-
----
-
-*Última atualização: Janeiro 2026*
+*Última atualização: Fevereiro 2026*
