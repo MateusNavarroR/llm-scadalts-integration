@@ -9,6 +9,10 @@ import os
 import argparse
 import logging
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Carrega variáveis de ambiente do arquivo .env
+load_dotenv()
 
 # Adiciona src ao path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -143,9 +147,10 @@ def run_interactive(config: AppConfig):
     
     if use_mock:
         print("\n⚠️ API key não configurada. Usando modo MOCK (respostas simuladas)")
-        print("   Configure ANTHROPIC_API_KEY para usar Claude real.\n")
+        print("   Configure ANTHROPIC_API_KEY ou GEMINI_API_KEY para usar IA real.\n")
     else:
-        print("✅ Agente Claude configurado\n")
+        provider_name = config.llm.provider.capitalize() if config.llm.provider else "IA"
+        print(f"✅ Agente {provider_name} configurado\n")
     
     agent = create_agent(api_key=api_key, collector=collector, use_mock=use_mock)
     
