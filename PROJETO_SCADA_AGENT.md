@@ -101,13 +101,14 @@ Gerencia a coleta periódica e armazenamento de dados.
 
 ### 3. LLMAgent (`llm_agent.py`)
 
-Interface com o modelo Claude para análise inteligente.
+Interface com o modelo Claude ou Gemini para análise inteligente.
 
 **Funcionalidades:**
 - Formatação de contexto com dados do SCADA
 - Histórico de conversação
 - Prompts especializados para análise de processo
 - Diagnóstico e recomendações
+- **Tool Calling (Escrita):** Capacidade de sugerir e executar comandos no SCADA (disponível via Gemini)
 
 ---
 
@@ -204,11 +205,12 @@ Ou faça perguntas em linguagem natural:
 - [x] Integração básica com Claude
 - [x] Interface de terminal
 
-### Fase 2: Melhorias do Agente
-- [ ] Prompts especializados para diagnóstico
-- [ ] Detecção de anomalias
+### Fase 2: Melhorias do Agente ✅ (Implementado)
+- [x] Prompts especializados para diagnóstico
+- [x] Suporte a Google Gemini com Tool Calling
+- [x] Ações automatizadas (com confirmação humana)
+- [ ] Detecção de anomalias avançada
 - [ ] Histórico de conversação persistente
-- [ ] Ações automatizadas (com confirmação)
 
 ### Fase 3: Interface Gráfica
 - [ ] Dashboard com gráficos em tempo real

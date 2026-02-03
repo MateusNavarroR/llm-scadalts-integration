@@ -44,8 +44,16 @@ uv run main.py --test-connection
 
 O sistema detecta automaticamente qual provedor usar com base na chave presente no `.env`:
 
-*   **Google Gemini**: `gemini-2.5-flash` (Padrão, rápido e eficiente).
+*   **Google Gemini**: `gemini-2.5-flash` (Suporta **Ações Ativas/Escrita**).
 *   **Anthropic Claude**: `claude-sonnet-4-20250514`.
+
+## ⚙️ Capacidades do Agente (Escrita)
+
+A partir da v1.1, o agente não apenas observa, mas pode **atuar no sistema**:
+
+*   **Ações:** Ajustar setpoints (ex: "Abra a válvula para 30%").
+*   **Segurança (Human-in-the-Loop):** Nenhuma ação é executada sem aprovação manual do operador no terminal.
+*   **Travas de Segurança:** Limites operacionais configurados no `src/config.py` impedem valores perigosos.
 
 ## 🛠️ Ferramentas de Diagnóstico
 

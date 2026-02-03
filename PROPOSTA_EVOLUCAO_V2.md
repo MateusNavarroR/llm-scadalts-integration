@@ -1,56 +1,22 @@
 # 📄 Proposta de Evolução: SCADA Agent v2.0
 
-Este documento detalha o planejamento para as próximas duas grandes funcionalidades do sistema: a **Interface de Chat (Web UI)** e a **Capacidade de Escrita (Atuadores)**.
+Este documento detalha o planejamento para a próxima grande funcionalidade do sistema: a **Interface de Chat (Web UI)**. A capacidade de escrita e o agente ativo foram implementados na v1.1.
 
 ---
 
-## 🏗️ 1. Interface de Chat (Web UI)
+## ✅ Funcionalidades Recém-Implementadas (v1.1)
+
+### 1. Agente Ativo (Capacidade de Escrita)
+O agente agora possui capacidade de interagir com o processo via **Tool Calling**.
+*   **Mecanismo:** O modelo (Gemini) utiliza a ferramenta `write_scada_point(tag, value)`.
+*   **Segurança (Human-in-the-Loop):** Implementado no `main.py`. Toda ação sugerida pela IA exige confirmação manual do operador `[s/N]`.
+*   **Travas de Segurança:** Integrado ao `src/config.py` com limites operacionais (ex: freq 0-60Hz) e blacklist de tags sensíveis.
+
+---
+
+## 🏗️ 2. Interface de Chat (Web UI)
 
 O objetivo é migrar da CLI atual para uma interface baseada em navegador que combine o chat conversacional com visualização de dados industrial.
-
-### 1.1 Stack Tecnológica Sugerida
-*   **Framework:** [Streamlit](https://streamlit.io/)
-*   **Justificativa:** 
-    *   Permite criar dashboards e chats em Python puro.
-    *   Integração nativa com bibliotecas de gráficos (Plotly/Altair) para mostrar tendências dos sensores.
-    *   Gerenciamento de estado de chat simplificado (`st.chat_message`).
-
-### 1.2 Componentes da Interface
-1.  **Sidebar de Monitoramento:**
-    *   Status de conexão com o SCADA-LTS (Ping em tempo real).
-    *   Indicadores numéricos dos 5 sensores principais.
-    *   Seletor de Provedor (Gemini/Claude).
-2.  **Janela de Chat:**
-    *   Histórico de mensagens com suporte a Markdown (respostas da IA).
-    *   **Gráficos On-demand:** Quando a IA analisar uma tendência, o sistema deve renderizar um gráfico de linha do buffer de dados logo abaixo da explicação.
-3.  **Controles de Sessão:**
-    *   Botão para limpar histórico.
-    *   Botão para exportar o log da conversa em PDF/Texto.
-
----
-
-## 🤖 2. Agente Ativo (Capacidade de Escrita)
-
-Atualmente o agente é apenas um observador. A v2.0 permitirá que ele sugira e execute mudanças no processo.
-
-### 2.1 Mecanismo: Tool Calling (Function Calling)
-Em vez de apenas gerar texto, o modelo (Gemini/Claude) será configurado com "Ferramentas" (funções Python).
-*   **Função `write_scada_point(tag, value)`:** A IA decide qual tag e qual valor enviar.
-*   **O fluxo técnico:**
-    1.  IA identifica intenção: *"Vou abrir a válvula para 50%"*.
-    2.  IA gera uma chamada de função: `{"function": "write_scada_point", "args": {"tag": "cv", "value": 50.0}}`.
-    3.  O sistema Python intercepta essa chamada.
-
-### 2.2 Segurança: Human-in-the-Loop
-Para evitar que a IA tome decisões perigosas sozinha, implementaremos um **Portão de Aprovação**:
-*   A chamada de escrita fica em estado **PENDENTE**.
-*   Na UI do chat, aparece um card: `"A IA deseja alterar CV para 50.0. Confirmar?"`.
-*   A escrita no SCADA só ocorre após o clique físico do operador no botão **[APROVAR]**.
-
-### 2.3 Travas de Segurança (Interlocks)
-Configuração de limites rígidos no código (`src/config.py`):
-*   **Safety Limits:** Ex: `freq1` nunca pode receber valor > 60.0 ou < 0.0.
-*   **Blacklist:** Tags que a IA nunca pode tocar (ex: reset de alarmes críticos).
 
 ---
 
