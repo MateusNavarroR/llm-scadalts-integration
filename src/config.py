@@ -4,7 +4,7 @@ Configurações centralizadas do projeto SCADA Agent
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List
 
 @dataclass
 class ScadaConfig:
@@ -73,6 +73,28 @@ class CollectorConfig:
 
 
 @dataclass
+class SafetyConfig:
+    """Configurações de segurança para escrita"""
+    # Limites operacionais: {tag_name: (min_val, max_val)}
+    safe_ranges: Dict[str, tuple] = field(default_factory=dict)
+    
+    # Tags que nunca podem ser escritas pela IA
+    blacklist: List[str] = field(default_factory=list)
+
+    def is_safe(self, tag: str, value: float) -> tuple[bool, str]:
+        """Verifica se a escrita é segura"""
+        if tag in self.blacklist:
+            return False, f"Tag '{tag}' está na blacklist e não pode ser alterada."
+            
+        if tag in self.safe_ranges:
+            min_val, max_val = self.safe_ranges[tag]
+            if not (min_val <= value <= max_val):
+                return False, f"Valor {value} para '{tag}' fora dos limites seguros ({min_val}-{max_val})."
+                
+        return True, "OK"
+
+
+@dataclass
 class LLMConfig:
     """Configurações do agente LLM"""
     api_key: str = ""
@@ -87,6 +109,11 @@ DIRETRIZ: SEJA EXTREMAMENTE CONCISO E DENSO EM INFORMAÇÃO.
 - NÃO repita a lista de valores brutos (o operador já viu isso no painel).
 - NÃO explique o óbvio (ex: "800MHz é alto"). Apenas aponte a anomalia.
 - FOCUE SOMENTE NA CORRELAÇÃO e no DIAGNÓSTICO.
+
+CAPACIDADE DE ESCRITA:
+- Você tem acesso a ferramentas para controlar o processo (escrever setpoints).
+- Use-as APENAS quando solicitado explicitamente ou quando a correção for óbvia e necessária.
+- SEMPRE informe o que você vai fazer antes ou durante a chamada da ferramenta.
 
 ESTILO (SEM MARKDOWN):
 - Use apenas texto puro e hifens para listas.
@@ -144,6 +171,7 @@ class AppConfig:
     points: PointsConfig = field(default_factory=PointsConfig)
     collector: CollectorConfig = field(default_factory=CollectorConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
+    safety: SafetyConfig = field(default_factory=SafetyConfig)
     
     @classmethod
     def from_env(cls) -> "AppConfig":
@@ -179,6 +207,14 @@ class AppConfig:
                 known_points[name] = value
                 
         config.points.points = known_points
+
+        # 3. Safety Config (Travas de Segurança)
+        # Por enquanto hardcoded, mas poderia vir de arquivo/env
+        config.safety.safe_ranges = {
+            "freq1": (0.0, 60.0), # Inversor 0-60Hz
+            "cv": (0.0, 100.0),   # Válvula 0-100%
+        }
+        config.safety.blacklist = ["reset_critico", "master_stop"]
         
         return config
 

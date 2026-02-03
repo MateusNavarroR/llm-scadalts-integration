@@ -23,6 +23,8 @@ from src import (
     DataCollector,
     create_agent,
 )
+# Importação direta do ToolRequest
+from src.llm_agent import ToolRequest
 
 # Configuração de logging
 logging.basicConfig(
@@ -234,7 +236,45 @@ def run_interactive(config: AppConfig):
                 # Trata como pergunta para o agente
                 print("\n🤖 Agente: Pensando...")
                 response = agent.ask(user_input)
-                print(f"\n🤖 Agente: {response}")
+                
+                # Verifica se é uma solicitação de ferramenta
+                if isinstance(response, ToolRequest):
+                    # Mostra o pensamento/explicação se houver
+                    if response.thought:
+                        print(f"\n🤖 Agente: {response.thought}")
+                    
+                    print(f"\n⚠️  SOLICITAÇÃO DE AÇÃO: {response.tool_name}")
+                    print(f"   Argumentos: {response.arguments}")
+                    
+                    # Verificação de Segurança
+                    tag = response.arguments.get("tag")
+                    try:
+                        val = float(response.arguments.get("value", 0.0))
+                    except (ValueError, TypeError):
+                        print("❌ Erro: Valor inválido fornecido pelo agente.")
+                        continue
+
+                    # Checa SafetyConfig global
+                    is_safe, reason = config.safety.is_safe(tag, val)
+                    if not is_safe:
+                        print(f"\n⛔ AÇÃO BLOQUEADA PELA SEGURANÇA: {reason}")
+                        continue
+                    
+                    # Solicita confirmação humana
+                    confirm = input("\n❓ Autorizar execução? [s/N]: ").lower()
+                    if confirm == 's':
+                        print("🚀 Executando...")
+                        success = client.write_point(tag, val)
+                        if success:
+                            print(f"✅ Sucesso! {tag} definido para {val}")
+                        else:
+                            print(f"❌ Falha na escrita: {client.last_error}")
+                    else:
+                        print("🚫 Ação cancelada pelo operador.")
+                
+                else:
+                    # Resposta normal de texto
+                    print(f"\n🤖 Agente: {response}")
     
     except KeyboardInterrupt:
         print("\n\n⚠️ Interrompido pelo usuário")

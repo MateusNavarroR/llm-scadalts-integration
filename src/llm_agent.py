@@ -1,10 +1,10 @@
 "Agente LLM para análise inteligente de dados SCADA"
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .config import LLMConfig
+from .config import LLMConfig, config as app_config
 from .data_collector import DataCollector, DataSnapshot
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,26 @@ class Message:
     role: str  # "user" ou "assistant"
     content: str
     timestamp: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class ToolRequest:
+    """Representa uma intenção do agente de usar uma ferramenta"""
+    tool_name: str
+    arguments: Dict[str, Any]
+    thought: str = ""  # O raciocínio do agente antes de chamar a ferramenta
+
+
+def write_scada_point(tag: str, value: float):
+    """
+    Altera o valor de um ponto no sistema SCADA (Escrita).
+    Use para ajustar setpoints, abrir/fechar válvulas ou ligar/desligar equipamentos.
+    
+    Args:
+        tag: Nome da tag (ex: 'cv', 'freq1', 'bomba').
+        value: Novo valor numérico para o ponto.
+    """
+    pass
 
 
 class LLMAgent:
@@ -97,10 +117,14 @@ class LLMAgent:
                 "max_output_tokens": self.config.max_tokens,
             }
             
+            # Ferramentas disponíveis
+            tools = [write_scada_point]
+            
             self._gemini_model = genai.GenerativeModel(
                 model_name=self.config.model,
                 generation_config=generation_config,
-                system_instruction=self.config.system_prompt
+                system_instruction=self.config.system_prompt,
+                tools=tools
             )
             
         return self._gemini_model
@@ -154,7 +178,7 @@ class LLMAgent:
             })
         return gemini_history
     
-    def ask(self, question: str, include_context: bool = True) -> str:
+    def ask(self, question: str, include_context: bool = True) -> Union[str, ToolRequest]:
         """
         Faz uma pergunta ao agente.
         
@@ -163,7 +187,7 @@ class LLMAgent:
             include_context: Se True, inclui dados atuais do SCADA
             
         Returns:
-            Resposta do agente
+            Resposta do agente (texto) ou ToolRequest (intenção de ação)
         """
         # Monta a mensagem do usuário com contexto
         if include_context and self.collector:
@@ -190,6 +214,7 @@ Pergunta do operador: {question}"""
             return error_msg
 
     def _ask_anthropic(self) -> str:
+        # TODO: Implementar suporte a tools no Anthropic
         client = self._get_anthropic_client()
         
         response = client.messages.create(
@@ -203,56 +228,90 @@ Pergunta do operador: {question}"""
         self.conversation_history.append(Message(role="assistant", content=assistant_message))
         return assistant_message
 
-    def _ask_gemini(self, current_prompt: str) -> str:
+    def _ask_gemini(self, current_prompt: str) -> Union[str, ToolRequest]:
         model = self._get_gemini_model()
-        
-        # Para o Gemini, o histórico é passado separadamente da mensagem atual
-        # Mas precisamos ter cuidado para não duplicar a mensagem atual no histórico
-        # se usarmos o chat session object.
-        # Aqui, vamos usar a abordagem stateless (generate_content) passando o histórico construído,
-        # ou iniciar um chat. A abordagem chat é mais limpa.
-        
-        # Pega o histórico ANTES da mensagem atual (que já foi adicionada em `ask`)
         previous_history = self._format_history_for_gemini()[:-1] 
         
         chat = model.start_chat(history=previous_history)
         response = chat.send_message(current_prompt)
         
-        assistant_message = response.text
-        self.conversation_history.append(Message(role="assistant", content=assistant_message))
-        return assistant_message
+        # Processa resposta
+        text_content = ""
+        tool_request = None
+        
+        # Verifica as partes da resposta
+        if hasattr(response, 'parts'):
+            for part in response.parts:
+                # Extrai texto
+                if part.text:
+                    text_content += part.text
+                
+                # Extrai chamada de função
+                if part.function_call:
+                    tool_request = ToolRequest(
+                        tool_name=part.function_call.name,
+                        arguments=dict(part.function_call.args),
+                        thought=text_content.strip()
+                    )
+        
+        # Se houve erro ou não tem parts (caso raro no SDK novo)
+        if not text_content and not tool_request:
+             text_content = response.text
+
+        # Registra no histórico
+        if tool_request:
+            # Salva representação da ação no histórico
+            log_content = f"{text_content}\n[INTENÇÃO DE AÇÃO: {tool_request.tool_name} {tool_request.arguments}]"
+            self.conversation_history.append(Message(role="assistant", content=log_content))
+            return tool_request
+        else:
+            self.conversation_history.append(Message(role="assistant", content=text_content))
+            return text_content
     
     def analyze_current_state(self) -> str:
         """Solicita análise completa do estado atual"""
-        return self.ask(
+        response = self.ask(
             "Analise o estado atual do sistema. "
             "Identifique quaisquer anomalias, tendências ou pontos de atenção. "
             "Seja conciso mas completo."
         )
+        # Se retornar ToolRequest (improvável para análise), converte para string
+        if isinstance(response, ToolRequest):
+            return f"O agente tentou executar uma ação durante a análise: {response.tool_name}"
+        return response
     
     def diagnose_issue(self, symptom: str) -> str:
         """Solicita diagnóstico de um problema específico"""
-        return self.ask(
+        response = self.ask(
             f"O operador reportou o seguinte sintoma: {symptom}. "
             "Com base nos dados atuais, quais são as possíveis causas? "
             "Sugira ações de verificação ou correção."
         )
+        if isinstance(response, ToolRequest):
+             return f"O agente sugeriu uma ação corretiva: {response.tool_name} {response.arguments}"
+        return response
     
     def suggest_optimization(self) -> str:
         """Solicita sugestões de otimização"""
-        return self.ask(
+        response = self.ask(
             "Com base no comportamento recente do sistema, "
             "existem oportunidades de otimização operacional? "
             "Considere eficiência energética, estabilidade e desgaste de equipamentos."
         )
+        if isinstance(response, ToolRequest):
+            return f"Sugestão de otimização automática: {response.tool_name} {response.arguments}"
+        return response
     
     def explain_behavior(self, observation: str) -> str:
         """Solicita explicação de um comportamento observado"""
-        return self.ask(
+        response = self.ask(
             f"O operador observou: {observation}. "
             "Explique por que isso pode estar acontecendo, "
             "considerando a física do processo e os dados disponíveis."
         )
+        if isinstance(response, ToolRequest):
+             return f"O agente tentou reagir a observação: {response.tool_name}"
+        return response
     
     def clear_history(self):
         """Limpa histórico de conversação"""
@@ -284,14 +343,36 @@ class MockLLMAgent(LLMAgent):
         self._anthropic_available = True 
         self._gemini_available = True
     
-    def ask(self, question: str, include_context: bool = True) -> str:
+    def ask(self, question: str, include_context: bool = True) -> Union[str, ToolRequest]:
         """Retorna resposta simulada"""
         question_lower = question.lower()
         
         # Adiciona ao histórico
         self.conversation_history.append(Message(role="user", content=question))
         
-        # Gera resposta baseada em palavras-chave
+        # SIMULAÇÃO DE TOOL CALL
+        if "ligar" in question_lower or "abrir" in question_lower or "ajustar" in question_lower or "mudar" in question_lower:
+            # Simula uma intenção de escrita se o usuário usar verbos de ação
+            import re
+            # Tenta extrair um número
+            val_match = re.search(r'(\d+)', question)
+            val = float(val_match.group(1)) if val_match else 50.0
+            
+            tag = "cv" if "valvula" in question_lower or "válvula" in question_lower else "freq1"
+            
+            tool_req = ToolRequest(
+                tool_name="write_scada_point",
+                arguments={"tag": tag, "value": val},
+                thought=f"[MOCK] Entendi que você quer alterar {tag} para {val}."
+            )
+            
+            self.conversation_history.append(Message(
+                role="assistant", 
+                content=f"{tool_req.thought}\n[TOOL: {tool_req.tool_name}]"
+            ))
+            return tool_req
+
+        # Gera resposta baseada em palavras-chave (texto normal)
         if "status" in question_lower or "atual" in question_lower:
             response = self._mock_status_response()
         elif "problema" in question_lower or "erro" in question_lower:
