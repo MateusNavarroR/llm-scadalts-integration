@@ -5,6 +5,10 @@ import os
 import sys
 from dataclasses import dataclass, field
 from typing import Dict, List
+from dotenv import load_dotenv
+
+# Garante que o .env seja carregado antes de qualquer classe ser instanciada
+load_dotenv()
 
 @dataclass
 class ScadaConfig:
