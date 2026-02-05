@@ -9,7 +9,9 @@ import {
   Zap,
   Thermometer,
   Gauge,
-  Wind
+  Wind,
+  LayoutDashboard,
+  Globe
 } from 'lucide-react';
 import axios from 'axios';
 import { 
@@ -66,12 +68,58 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   
+  // Novos estados para navegação
+  const [view, setView] = useState<'dashboard' | 'scada'>('dashboard');
+  
+  // URL do SCADA: Prioriza VITE_SCADA_DASHBOARD_URL se existir
+  const [scadaUrl, setScadaUrl] = useState<string>(import.meta.env.VITE_SCADA_DASHBOARD_URL || '');
+
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll do chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Busca URL do SCADA na inicialização
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const res = await axios.get('http://localhost:8000/api/status');
+        
+        // Lógica de Prioridade:
+        // 1. Backend Dashboard URL (Proxy Seguro ou Configurado no Backend)
+        // 2. VITE_SCADA_DASHBOARD_URL (Configuração Local do Frontend)
+        // 3. Backend Base URL (Fallback)
+        
+        const backendDash = res.data.scada_dashboard_url;
+        const localEnvDash = import.meta.env.VITE_SCADA_DASHBOARD_URL;
+        const backendBase = res.data.scada_url;
+
+        let finalUrl = backendDash;
+
+        if (!finalUrl && localEnvDash) {
+          finalUrl = localEnvDash;
+        }
+
+        if (!finalUrl) {
+          finalUrl = backendBase;
+        }
+        
+        if (finalUrl) {
+          setScadaUrl(finalUrl);
+          console.log("🔗 URL SCADA Definida:", finalUrl);
+        }
+      } catch (err) {
+        console.error("Erro ao buscar status:", err);
+        // Fallback final se a API falhar
+        if (import.meta.env.VITE_SCADA_DASHBOARD_URL) {
+           setScadaUrl(import.meta.env.VITE_SCADA_DASHBOARD_URL);
+        }
+      }
+    };
+    fetchStatus();
+  }, []);
 
   // Conexão WebSocket
   useEffect(() => {
@@ -175,60 +223,101 @@ function App() {
           </div>
         </header>
 
-        {/* Grid de Sensores */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <SensorCard 
-            label="Pressão PT1" 
-            value={data?.values.pt1 || 0} 
-            unit="bar" 
-            icon={Gauge} 
-            color="bg-blue-500" 
-          />
-          <SensorCard 
-            label="Pressão PT2" 
-            value={data?.values.pt2 || 0} 
-            unit="bar" 
-            icon={Thermometer} 
-            color="bg-indigo-500" 
-          />
-          <SensorCard 
-            label="Vazão FT1" 
-            value={data?.values.ft1 || 0} 
-            unit="m³/h" 
-            icon={Wind} 
-            color="bg-cyan-500" 
-          />
-          <SensorCard 
-            label="Válvula CV" 
-            value={data?.values.cv || 0} 
-            unit="%" 
-            icon={Settings} 
-            color="bg-slate-700" 
-          />
-          <SensorCard 
-            label="Bomba Freq" 
-            value={data?.values.freq1 || 0} 
-            unit="Hz" 
-            icon={Zap} 
-            color="bg-orange-500" 
-          />
+        {/* Navegação de Abas */}
+        <div className="flex space-x-4 border-b border-slate-200">
+          <button
+            onClick={() => setView('dashboard')}
+            className={`pb-3 flex items-center gap-2 text-sm font-medium transition-colors ${
+              view === 'dashboard' 
+                ? 'border-b-2 border-blue-600 text-blue-600' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <LayoutDashboard size={18} />
+            Dashboard IA
+          </button>
+          <button
+            onClick={() => setView('scada')}
+            className={`pb-3 flex items-center gap-2 text-sm font-medium transition-colors ${
+              view === 'scada' 
+                ? 'border-b-2 border-blue-600 text-blue-600' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <Globe size={18} />
+            Acesso SCADA-LTS
+          </button>
         </div>
 
-        {/* Gráfico Principal */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex-1">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">Tendência das Pressões</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={history}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="time" hide />
-                <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
-                <Tooltip />
-                <Line type="monotone" dataKey="pt1" stroke="#3b82f6" strokeWidth={3} dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="pt2" stroke="#6366f1" strokeWidth={3} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+        {/* Conteúdo Principal (Alternável) */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {view === 'dashboard' ? (
+            <div className="space-y-6">
+              {/* Grid de Sensores */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <SensorCard 
+                  label="Pressão PT1" 
+                  value={data?.values.pt1 || 0} 
+                  unit="bar" 
+                  icon={Gauge} 
+                  color="bg-blue-500" 
+                />
+                <SensorCard 
+                  label="Pressão PT2" 
+                  value={data?.values.pt2 || 0} 
+                  unit="bar" 
+                  icon={Thermometer} 
+                  color="bg-indigo-500" 
+                />
+                <SensorCard 
+                  label="Vazão FT1" 
+                  value={data?.values.ft1 || 0} 
+                  unit="m³/h" 
+                  icon={Wind} 
+                  color="bg-cyan-500" 
+                />
+                <SensorCard 
+                  label="Válvula CV" 
+                  value={data?.values.cv || 0} 
+                  unit="%" 
+                  icon={Settings} 
+                  color="bg-slate-700" 
+                />
+                <SensorCard 
+                  label="Bomba Freq" 
+                  value={data?.values.freq1 || 0} 
+                  unit="Hz" 
+                  icon={Zap} 
+                  color="bg-orange-500" 
+                />
+              </div>
+
+              {/* Gráfico Principal */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex-1">
+                <h3 className="text-lg font-semibold text-slate-800 mb-4">Tendência das Pressões</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={history}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="time" hide />
+                      <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="pt1" stroke="#3b82f6" strokeWidth={3} dot={false} isAnimationActive={false} />
+                      <Line type="monotone" dataKey="pt2" stroke="#6366f1" strokeWidth={3} dot={false} isAnimationActive={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+              <iframe 
+                src={scadaUrl} 
+                className="w-full h-full border-0"
+                title="SCADA-LTS Interface"
+              />
+            </div>
+          )}
         </div>
       </div>
 
