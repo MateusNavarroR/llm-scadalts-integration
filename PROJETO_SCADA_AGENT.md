@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em LLM (Claude), permitindo análise em tempo real de dados de sensores, diagnósticos automatizados e interação conversacional com o sistema.
+Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em LLM (Claude/Gemini), permitindo análise em tempo real de dados de sensores, diagnósticos automatizados e interação conversacional com o sistema através de uma interface web moderna.
 
 ---
 
@@ -21,31 +21,30 @@ Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em L
 ## 🏗️ Arquitetura do Sistema
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        APLICAÇÃO PRINCIPAL                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
-│  │              │    │              │    │              │       │
-│  │ ScadaClient  │───►│DataCollector │───►│  LLMAgent    │       │
-│  │              │    │              │    │              │       │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘       │
-│         │                   │                   │               │
-│         ▼                   ▼                   ▼               │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
-│  │  SCADA-LTS   │    │   Buffer/    │    │   Claude     │       │
-│  │    API       │    │   Histórico  │    │    API       │       │
-│  └──────────────┘    └──────────────┘    └──────────────┘       │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────┐      ┌──────────────────────────────┐
+│      Frontend (React)     │      │      Backend (FastAPI)       │
+│                           │      │                              │
+│  ┌─────────┐  ┌────────┐  │      │  ┌──────────┐  ┌──────────┐  │
+│  │ Dashboard│  │  Chat  │◄─ API ─┼─►│ LLMAgent │  │ API/WS   │  │
+│  └─────────┘  └────────┘  │      │  └────┬─────┘  └────┬─────┘  │
+│       ▲            ▲      │      │       │             │        │
+│       │            │      │      │       ▼             ▼        │
+│  ┌────┴────────────┴───┐  │      │  ┌──────────┐  ┌──────────┐  │
+│  │    SCADA Iframe     │◄──Proxy─┼──┤DataCollec│  │ScadaClient│  │
+│  └─────────────────────┘  │      │  └──────────┘  └────┬─────┘  │
+└───────────────────────────┘      └─────────────────────┼────────┘
+                                                         │
+                                                         ▼
+                                                ┌────────────────┐
+                                                │   SCADA-LTS    │
+                                                └────────────────┘
 ```
 
 ### Fluxo de Dados
 
-1. **Aquisição**: `ScadaClient` conecta ao SCADA-LTS via API REST
-2. **Coleta**: `DataCollector` armazena leituras em buffer temporal
-3. **Análise**: `LLMAgent` recebe dados formatados e responde consultas
-4. **Interação**: Usuário interage via terminal (futuro: GUI)
+1. **Monitoramento IA**: `ScadaClient` coleta dados -> `DataCollector` armazena -> `LLMAgent` analisa -> Frontend exibe via WebSocket.
+2. **Controle IA**: Usuário solicita no Chat -> `LLMAgent` processa -> Solicita aprovação -> `ScadaClient` escreve no SCADA.
+3. **Visualização SCADA**: Frontend carrega Iframe -> Backend Proxy reescreve headers/cookies -> SCADA-LTS (Bypass de restrições de segurança/CORS).
 
 ---
 
@@ -53,256 +52,140 @@ Este projeto integra um sistema SCADA-LTS com um agente inteligente baseado em L
 
 ```
 scada_agent_project/
-├── docs/
-│   └── PROJETO_SCADA_AGENT.md    # Este documento
+├── docs/                 # Documentação
+├── frontend/             # Interface React + Vite
+│   ├── src/
+│   │   ├── App.tsx       # Dashboard e Chat
+│   │   └── ...
 ├── src/
-│   ├── __init__.py
-│   ├── scada_client.py           # Cliente de comunicação SCADA-LTS
-│   ├── data_collector.py         # Coletor de dados com buffer
-│   ├── llm_agent.py              # Agente inteligente (Claude)
-│   └── config.py                 # Configurações centralizadas
-├── tests/
-│   └── test_integration.py       # Testes de integração
-├── main.py                       # Ponto de entrada da aplicação
-├── requirements.txt              # Dependências Python
-└── .env.example                  # Exemplo de variáveis de ambiente
+│   ├── server.py         # Servidor FastAPI e Proxy SCADA
+│   ├── scada_client.py   # Cliente API SCADA-LTS
+│   ├── data_collector.py # Coletor e Buffer de dados
+│   ├── llm_agent.py      # Agente Inteligente (Gemini/Claude)
+│   └── config.py         # Configurações
+├── main.py               # Launcher (CLI legado)
+└── .env                  # Configurações de ambiente
 ```
 
 ---
 
 ## 🧩 Componentes
 
-### 1. ScadaClient (`scada_client.py`)
+### 1. Backend Server (`server.py`)
 
-Responsável pela comunicação direta com a API do SCADA-LTS.
-
-**Funcionalidades:**
-- Autenticação e gerenciamento de sessão
-- Leitura de pontos (sensores)
-- Escrita de pontos (atuadores)
-- Tratamento de erros e reconexão
-
-**Endpoints utilizados:**
-| Operação | Endpoint |
-|----------|----------|
-| Login | `GET /api/auth/{user}/{password}` |
-| Leitura | `GET /api/point_value/getValue/{xid}` |
-| Escrita | `POST /api/point_value/setValue/{xid}/{type}/{value}` |
-
-### 2. DataCollector (`data_collector.py`)
-
-Gerencia a coleta periódica e armazenamento de dados.
+Núcleo da aplicação que expõe a API REST, WebSocket e o Proxy Reverso.
 
 **Funcionalidades:**
-- Coleta em background (thread separada)
-- Buffer circular com histórico configurável
-- Estatísticas (média, min, max, tendência)
-- Export para DataFrame/Excel
+- **API REST**: Endpoints para chat, status e aprovação de ações.
+- **WebSocket**: Streaming de dados em tempo real para o Dashboard.
+- **Proxy Reverso Inteligente**:
+    - Intercepta requisições para o SCADA-LTS.
+    - Reescreve headers `Location` e `Referer` para manter navegação fluida.
+    - Remove headers de segurança (`X-Frame-Options`, `Content-Security-Policy`) que impediriam o uso em Iframe.
+    - Gerencia `Set-Cookie` múltiplos para manutenção de sessão.
+    - Mascara origem de requisições WebSocket/XHR para evitar bloqueios CSRF/CORS (Erro 403).
 
-### 3. LLMAgent (`llm_agent.py`)
+### 2. Interface Web (Frontend)
 
-Interface com o modelo Claude ou Gemini para análise inteligente.
+Dashboard desenvolvido em React para operação unificada.
 
 **Funcionalidades:**
-- Formatação de contexto com dados do SCADA
-- Histórico de conversação
-- Prompts especializados para análise de processo
-- Diagnóstico e recomendações
-- **Tool Calling (Escrita):** Capacidade de sugerir e executar comandos no SCADA (disponível via Gemini)
+- Visualização de KPIs e gráficos em tempo real.
+- Chat integrado com o Agente IA.
+- Iframe embutido para acesso direto às telas nativas do SCADA-LTS.
+- Sistema de aprovação de ações críticas sugeridas pela IA.
+
+### 3. ScadaClient & DataCollector
+
+Camada de baixo nível para comunicação e persistência temporária de dados.
+
+- **ScadaClient**: Abstrai a API REST do SCADA (Login, Read, Write).
+- **DataCollector**: Mantém buffer circular dos últimos minutos para contexto da IA.
+
+### 4. LLMAgent
+
+Cérebro da operação.
+
+- Suporta Google Gemini (com Tool Calling) e Anthropic Claude.
+- Analisa tendências e diagnostica anomalias.
+- Pode sugerir ações de controle (escrita de setpoints), sujeitas à aprovação humana.
 
 ---
 
 ## ⚙️ Configuração
 
-### Variáveis de Ambiente
-
-Criar arquivo `.env` na raiz do projeto:
+### Variáveis de Ambiente (`.env`)
 
 ```env
 # SCADA-LTS
 SCADA_BASE_URL=http://localhost:8080/Scada-LTS
-SCADA_USER=Lenhs
-SCADA_PASSWORD=123456
+SCADA_DASHBOARD_URL=http://localhost:8000/Scada-LTS/  # URL via Proxy
+SCADA_USER=admin
+SCADA_PASSWORD=admin
 
-# Anthropic API
-ANTHROPIC_API_KEY=sua_chave_aqui
+# LLM Provider (Escolha um)
+GEMINI_API_KEY=AIza...
+# ANTHROPIC_API_KEY=sk-ant...
 
-# Configurações de Coleta
-SAMPLE_RATE_HZ=1.0
-BUFFER_SIZE_SECONDS=300
+# Segurança
+SAFE_MODE=true
 ```
-
-### Pontos de Dados (XIDs)
-
-| Variável | XID | Descrição |
-|----------|-----|-----------|
-| CV (Válvula) | DP_851894 | Posição da válvula de controle |
-| Frequência | DP_693642 | Frequência do inversor |
-| PT1 | DP_155700 | Pressão transmissor 1 |
-| PT2 | DP_719779 | Pressão transmissor 2 |
-| FT1 | DP_041666 | Vazão (medidor de fluxo) |
 
 ---
 
 ## 🚀 Uso
 
-### Instalação
+### 1. Iniciar Backend (Python)
 
 ```bash
-# Clonar/criar projeto
-cd scada_agent_project
-
-# Criar ambiente virtual
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# ou: venv\Scripts\activate  # Windows
-
-# Instalar dependências
-pip install -r requirements.txt
-
-# Configurar variáveis de ambiente
-cp .env.example .env
-# Editar .env com suas configurações
+# Na raiz do projeto
+source .venv/bin/activate
+uvicorn src.server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Execução
+### 2. Iniciar Frontend (React)
 
 ```bash
-# Modo interativo (terminal)
-python main.py
-
-# Apenas coleta de dados (sem agente)
-python main.py --collect-only
-
-# Teste de conexão
-python main.py --test-connection
+# Em outro terminal, na pasta frontend/
+npm run dev
 ```
 
-### Comandos do Agente
-
-Durante a execução interativa:
-
-| Comando | Descrição |
-|---------|-----------|
-| `status` | Mostra leituras atuais dos sensores |
-| `historico` | Exibe últimas N leituras |
-| `analise` | Solicita análise do agente |
-| `exportar` | Salva dados em Excel |
-| `sair` | Encerra a aplicação |
-
-Ou faça perguntas em linguagem natural:
-- "Qual a vazão atual?"
-- "A pressão está estável?"
-- "O que pode estar causando essa queda de pressão?"
+Acesse o dashboard em: `http://localhost:5173`
 
 ---
 
 ## 🗺️ Roadmap
 
-### Fase 1: Backend Básico ✅ (Atual)
-- [x] Cliente SCADA-LTS
-- [x] Coletor de dados
-- [x] Integração básica com Claude
-- [x] Interface de terminal
+### Fase 1: Backend Básico ✅ (Concluído)
+- [x] Cliente SCADA-LTS e Coletor.
+- [x] Agente LLM básico.
 
-### Fase 2: Melhorias do Agente ✅ (Implementado)
-- [x] Prompts especializados para diagnóstico
-- [x] Suporte a Google Gemini com Tool Calling
-- [x] Ações automatizadas (com confirmação humana)
-- [ ] Detecção de anomalias avançada
-- [ ] Histórico de conversação persistente
+### Fase 2: Agente Ativo ✅ (Concluído)
+- [x] Tool Calling (Escrita no SCADA).
+- [x] Travas de Segurança (Safety Config).
 
-### Fase 3: Interface Gráfica
-- [ ] Dashboard com gráficos em tempo real
-- [ ] Chat integrado
-- [ ] Alertas visuais
-- [ ] Configuração via GUI
+### Fase 3: Interface Gráfica (Web) 🚧 (Em Progresso)
+- [x] Dashboard React.
+- [x] Proxy Reverso para SCADA (Bypass Iframe/CORS).
+- [x] Integração Chat + WebSocket.
+- [ ] Autenticação de Usuário no Dashboard.
 
-### Fase 4: Recursos Avançados
-- [ ] Banco de dados para histórico longo
-- [ ] Múltiplos agentes especializados
-- [ ] Integração com alarmes do SCADA
-- [ ] API REST própria
+### Fase 4: Recursos Avançados (Planejado)
+- [ ] Banco de dados persistente.
+- [ ] Dashboards customizáveis pelo usuário.
+- [ ] Integração com sistema de Alarmes.
 
 ---
 
-## 📚 Referências da API SCADA-LTS
+## 📚 Referências
 
-### Autenticação
+### Endpoint do Proxy
 
-```http
-GET /Scada-LTS/api/auth/{username}/{password}
-```
+O acesso ao SCADA via proxy deve ser feito através de:
+`http://localhost:8000/Scada-LTS/...`
 
-Retorna cookie de sessão para requisições subsequentes.
-
-### Leitura de Ponto
-
-```http
-GET /Scada-LTS/api/point_value/getValue/{xid}
-```
-
-**Resposta:**
-```json
-{
-  "value": "25.5",
-  "ts": 1699876543000,
-  "status": "OK"
-}
-```
-
-### Escrita de Ponto
-
-```http
-POST /Scada-LTS/api/point_value/setValue/{xid}/{dataType}/{value}
-```
-
-**Tipos de dados (dataType):**
-| Código | Tipo |
-|--------|------|
-| 1 | Binary |
-| 2 | Multistate |
-| 3 | Numeric |
-| 4 | Alphanumeric |
+Isso garante que todos os recursos (imagens, scripts, XHR) passem pelo tratamento de headers do nosso servidor.
 
 ---
 
-## 🔧 Troubleshooting
-
-### Erro de conexão com SCADA-LTS
-
-1. Verificar se o servidor está rodando
-2. Confirmar URL e porta
-3. Testar login manualmente no navegador
-4. Verificar firewall
-
-### Erro na API do Claude
-
-1. Verificar se a chave API está configurada
-2. Confirmar saldo/limites da conta
-3. Verificar conectividade com internet
-
-### Dados inconsistentes
-
-1. Verificar XIDs dos pontos
-2. Confirmar tipos de dados
-3. Verificar se sensores estão online no SCADA
-
----
-
-## 📝 Notas de Desenvolvimento
-
-- **Thread Safety**: O `DataCollector` usa locks para acesso thread-safe ao buffer
-- **Reconexão**: O `ScadaClient` tenta reconectar automaticamente em caso de falha
-- **Rate Limiting**: Respeitar limites da API do Claude (verificar plano)
-- **Logging**: Usar módulo `logging` para debug e auditoria
-
----
-
-## 👥 Contribuição
-
-Este é um projeto em desenvolvimento. Sugestões e melhorias são bem-vindas!
-
----
-
-*Última atualização: Janeiro 2026*
+*Última atualização: Fevereiro 2026*

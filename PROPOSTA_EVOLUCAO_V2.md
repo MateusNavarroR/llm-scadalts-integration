@@ -1,41 +1,45 @@
-# 📄 Proposta de Evolução: SCADA Agent v2.0
+# 📄 Proposta de Evolução: SCADA Agent v2.0 (Status: MVP Implementado)
 
-Este documento detalha o planejamento para a próxima grande funcionalidade do sistema: a **Interface de Chat (Web UI)**. A capacidade de escrita e o agente ativo foram implementados na v1.1.
-
----
-
-## ✅ Funcionalidades Recém-Implementadas (v1.1)
-
-### 1. Agente Ativo (Capacidade de Escrita)
-O agente agora possui capacidade de interagir com o processo via **Tool Calling**.
-*   **Mecanismo:** O modelo (Gemini) utiliza a ferramenta `write_scada_point(tag, value)`.
-*   **Segurança (Human-in-the-Loop):** Implementado no `main.py`. Toda ação sugerida pela IA exige confirmação manual do operador `[s/N]`.
-*   **Travas de Segurança:** Integrado ao `src/config.py` com limites operacionais (ex: freq 0-60Hz) e blacklist de tags sensíveis.
+Este documento detalha a evolução do sistema para a **Interface Web (React + FastAPI)**. A arquitetura foi definida e o MVP já está funcional, integrando Chat, Dashboard e Proxy SCADA.
 
 ---
 
-## 🏗️ 2. Interface de Chat (Web UI)
+## ✅ Funcionalidades Implementadas (v1.2)
 
-O objetivo é migrar da CLI atual para uma interface baseada em navegador que combine o chat conversacional com visualização de dados industrial.
+### 1. Interface Web Moderna (React)
+Optamos pela arquitetura **React + Vite** (em vez de Streamlit) para maior flexibilidade e desempenho.
+- **Dashboard**: Visualização de KPIs (Pressão, Vazão, etc.) e gráficos em tempo real via WebSocket.
+- **Chat Integrado**: Interface conversacional com o Agente IA na mesma tela.
+- **Embedded SCADA**: O SCADA-LTS legado é renderizado dentro de um Iframe, permitindo operação híbrida.
+
+### 2. Backend & Proxy (FastAPI)
+O backend foi migrado para FastAPI para suportar WebSocket e servir como Proxy Reverso.
+- **Proxy Inteligente**: Resolve problemas de CORS, `X-Frame-Options` e Cookies, permitindo que o SCADA antigo funcione dentro da aplicação moderna.
+- **WebSocket**: Streaming de dados de sensores com latência < 1s.
+
+### 3. Agente Ativo (Capacidade de Escrita)
+O agente interage com o processo via **Tool Calling** (Gemini).
+*   **Segurança:** Toda ação sugerida pela IA exige aprovação explícita na interface ("Aprovar/Recusar").
+*   **Travas:** Limites operacionais configurados no backend.
 
 ---
 
-## 📅 3. Cronograma de Implementação
+## 📅 3. Cronograma Atualizado
 
-| Fase | Atividade | Descrição Técnica |
+| Fase | Status | Descrição Técnica |
 | :--- | :--- | :--- |
-| **Fase 1** | **Esqueleto Streamlit** | Criar `app.py`, integrar o `DataCollector` e criar o loop de chat. |
-| **Fase 2** | **Visualização Rica** | Implementar renderização de gráficos baseada nas respostas da IA. |
-| **Fase 3** | **Ferramentas de Escrita** | Implementar `Function Calling` e a lógica de `Aprovação Pendente`. |
-| **Fase 4** | **Hardening de Segurança** | Adicionar os filtros de limites e testes de estresse de segurança. |
+| **Fase 1** | ✅ Concluído | **Esqueleto React + FastAPI**: Configuração do projeto, WebSocket e coleta de dados. |
+| **Fase 2** | ✅ Concluído | **Proxy SCADA**: Implementação do bypass de headers e cookies para embutir o SCADA-LTS. |
+| **Fase 3** | 🚧 Em Progresso | **Refinamento UX**: Melhoria no feedback visual de ações e tratamento de erros de conexão. |
+| **Fase 4** | 📅 Planejado | **Persistência & Auth**: Login de usuário no Dashboard e histórico de chat persistente (Banco de Dados). |
 
 ---
 
-## ❓ Pontos para Discussão
+## ❓ Questões Resolvidas
 
-1.  **Streamlit vs FastAPI/React:** O Streamlit é mais rápido para prototipar, mas o React permite interfaces muito mais customizadas. Qual sua preferência para este estágio?
-2.  **Escrita Direta:** Existe algum ponto que você gostaria que a IA escrevesse **sem** pedir autorização (ex: registrar um log no SCADA)?
-3.  **Persistência:** O histórico do chat deve ser salvo em banco de dados ou pode ser perdido ao fechar o navegador?
+1.  **Arquitetura:** Definida como **React + FastAPI**. O Streamlit foi descartado para permitir o embedding seguro do SCADA via Iframe e maior controle de layout.
+2.  **Escrita Direta:** Mantida a política de **Human-in-the-Loop**. Nenhuma escrita crítica ocorre sem clique de aprovação.
+3.  **Persistência:** Por enquanto, o histórico é volátil (memória). Próximo passo é integrar SQLite/PostgreSQL.
 
 ---
-*Documento gerado para análise técnica previa à implementação.*
+*Documento atualizado: Fevereiro 2026*
