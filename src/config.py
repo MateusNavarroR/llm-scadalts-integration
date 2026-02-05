@@ -14,6 +14,7 @@ load_dotenv()
 class ScadaConfig:
     """Configurações de conexão com SCADA-LTS"""
     base_url: str = ""
+    dashboard_url: str = ""  # URL para acesso via navegador (iframe)
     username: str = ""
     password: str = ""
     timeout: int = 5
@@ -184,6 +185,8 @@ class AppConfig:
         
         # 1. SCADA Config
         config.scada.base_url = os.environ.get("SCADA_BASE_URL", "http://localhost:8080/Scada-LTS")
+        # Define URL do dashboard (pode ser diferente da API interna se estiver em container)
+        config.scada.dashboard_url = os.environ.get("SCADA_DASHBOARD_URL", config.scada.base_url)
         config.scada.username = os.environ.get("SCADA_USER", "")
         config.scada.password = os.environ.get("SCADA_PASSWORD", "")
         

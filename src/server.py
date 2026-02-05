@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from typing import Dict, Any, Optional
@@ -7,6 +8,7 @@ import logging
 import os
 import asyncio
 import json
+import httpx
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -102,12 +104,116 @@ async def root():
 @app.get("/api/status")
 async def get_status():
     """Status do sistema"""
+    # Se o dashboard_url for igual ao base_url, sugerimos o proxy local
+    # para evitar problemas de X-Frame-Options
+    dash_url = state.config.scada.dashboard_url if state.config else ""
+    base_url = state.config.scada.base_url if state.config else ""
+    
+    # Força o uso do proxy local se a URL configurada for local
+    # Isso garante que o redirecionamento funcione mesmo sem configuração explícita
+    if "localhost" in dash_url or "127.0.0.1" in dash_url:
+        dash_url = "http://localhost:8000/Scada-LTS/"
+        logger.info(f"🔄 Forçando Dashboard para Proxy: {dash_url}")
+        
     return {
         "scada_connected": state.client.connected if state.client else False,
-        "scada_url": state.config.scada.base_url if state.config else "",
+        "scada_url": base_url,
+        "scada_dashboard_url": dash_url,
         "provider": state.config.llm.provider if state.config else "unknown",
         "collector": state.collector.get_status() if state.collector else {}
     }
+
+from starlette.background import BackgroundTask
+
+@app.api_route("/Scada-LTS/{path_name:path}", methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"])
+async def proxy_scada(path_name: str, request: Request):
+    """
+    Reverse Proxy para o SCADA-LTS.
+    Remove headers de segurança (X-Frame-Options) para permitir iframe.
+    Também reescreve redirects para manter o usuário no proxy.
+    """
+    if not state.config:
+        raise HTTPException(status_code=503, detail="Config not loaded")
+        
+    # URL Base do SCADA real (ex: http://localhost:8080/Scada-LTS)
+    base_url = state.config.scada.base_url.rstrip('/')
+    
+    # Target URL construction
+    target_url = f"{base_url}/{path_name}"
+    
+    # Copia headers do request original (exceto host)
+    req_headers = dict(request.headers)
+    req_headers.pop("host", None)
+    req_headers.pop("content-length", None)
+    
+    # --- FIX 403 Forbidden (CSRF/CORS) ---
+    # Força Origin e Referer para o próprio domínio do SCADA.
+    # Isso impede que o SCADA rejeite requisições vindas do proxy/frontend.
+    req_headers["origin"] = base_url
+    req_headers["referer"] = target_url
+    
+    # Cria cliente sem context manager para persistir durante o stream
+    client = httpx.AsyncClient(follow_redirects=False)
+    
+    try:
+        body = await request.body()
+        
+        rp_req = client.build_request(
+            request.method,
+            target_url,
+            headers=req_headers,
+            content=body,
+            params=request.query_params,
+            cookies=request.cookies,
+            timeout=30.0
+        )
+        
+        rp_resp = await client.send(rp_req, stream=True)
+        
+        # Headers proibidos ou que devem ser ignorados
+        excluded_headers = {
+            "content-encoding", 
+            "content-length", 
+            "transfer-encoding", 
+            "connection", 
+            "x-frame-options", 
+            "content-security-policy"
+        }
+        
+        # Proxy base URL
+        proxy_base = "http://localhost:8000/Scada-LTS"
+
+        # Cria a resposta inicial
+        response = StreamingResponse(
+            rp_resp.aiter_raw(),
+            status_code=rp_resp.status_code,
+            background=BackgroundTask(client.aclose)
+        )
+        
+        # Copia e processa headers preservando múltiplos valores (ex: Set-Cookie)
+        for key, value in rp_resp.headers.multi_items():
+            if key.lower() in excluded_headers:
+                continue
+            
+            # Rewrite Location header
+            if key.lower() == "location":
+                if base_url in value:
+                    value = value.replace(base_url, proxy_base)
+                    logger.info(f"🔄 Redirect reescrito: {value}")
+            
+            # Adiciona ao header da resposta
+            response.headers.append(key, value)
+        
+        return response
+        
+    except httpx.RequestError as exc:
+        logger.error(f"Proxy Error: {exc}")
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Proxy error: {str(exc)}")
+    except Exception as e:
+        logger.error(f"Unexpected Proxy Error: {e}")
+        await client.aclose()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/ws/data")
 async def websocket_endpoint(websocket: WebSocket):
