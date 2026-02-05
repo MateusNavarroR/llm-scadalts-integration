@@ -197,8 +197,16 @@ class ScadaClient:
     
     def read_all_configured(self) -> Dict[str, Optional[PointValue]]:
         """Lê todos os pontos configurados"""
-        return self.read_multiple(list(self.points.points.keys()))
+        # Suporte legado para dicionário simples ou novo objeto PointsConfig
+        if hasattr(self.points, 'points'):
+             return self.read_multiple(list(self.points.points.keys()))
+        return self.read_multiple(list(self.points.keys()))
     
+    def update_config(self, new_points_config: PointsConfig):
+        """Atualiza a configuração de pontos em tempo real (Hot Reload)"""
+        self.points = new_points_config
+        logger.info(f"ScadaClient atualizado com {len(self.points.points)} pontos.")
+
     def test_connection(self) -> Dict[str, Any]:
         """
         Testa a conexão e retorna diagnóstico.

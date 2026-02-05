@@ -294,6 +294,14 @@ class DataCollector:
             self._buffer.clear()
         logger.info("Buffer limpo")
     
+    def update_points_list(self, new_points: List[str]):
+        """Atualiza a lista de pontos a serem coletados (Hot Reload)"""
+        old_count = len(self.points_to_collect)
+        self.points_to_collect = new_points
+        # Opcional: Limpar buffer se a estrutura mudar drasticamente, 
+        # mas manter dados antigos pode ser útil.
+        logger.info(f"Coletor atualizado: {old_count} -> {len(new_points)} pontos")
+
     def get_status(self) -> Dict:
         """Retorna status do coletor"""
         return {
