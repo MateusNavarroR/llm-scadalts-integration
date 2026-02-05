@@ -4,7 +4,7 @@ Configurações centralizadas do projeto SCADA Agent
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 # Garante que o .env seja carregado antes de qualquer classe ser instanciada
@@ -43,11 +43,55 @@ class ScadaConfig:
 
 
 @dataclass
+class PointDetail:
+    """Configuração detalhada de um ponto"""
+    name: str          # Nome interno (ex: pt1)
+    xid: str           # ID no SCADA (ex: DP_123)
+    friendly_name: str # Nome para exibição (ex: Pressão Caldeira)
+    unit: str = ""     # Unidade (bar, °C, etc)
+    min_val: float = 0.0
+    max_val: float = 100.0
+    safe_min: float = None # Para validação de segurança
+    safe_max: float = None
+    
+    def to_dict(self):
+        return {
+            "name": self.name,
+            "xid": self.xid,
+            "friendly_name": self.friendly_name,
+            "unit": self.unit,
+            "min_val": self.min_val,
+            "max_val": self.max_val,
+            "safe_min": self.safe_min,
+            "safe_max": self.safe_max
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict):
+        return cls(**data)
+
+
+@dataclass
 class PointsConfig:
     """Configuração dos pontos de dados (XIDs)"""
-    # Mapeamento: nome amigável -> XID
-    # Agora carrega vazio por padrão, preenchido via env
-    points: Dict[str, str] = field(default_factory=dict)
+    # Lista de objetos PointDetail
+    points_list: List[PointDetail] = field(default_factory=list)
+    
+    # Mantém compatibilidade com código antigo que espera dict {name: xid}
+    @property
+    def points(self) -> Dict[str, str]:
+        return {p.name: p.xid for p in self.points_list}
+    
+    def get_point(self, name: str) -> Optional[PointDetail]:
+        for p in self.points_list:
+            if p.name == name:
+                return p
+        return None
+    
+    def get_xid(self, name: str) -> str:
+        """Retorna XID pelo nome amigável"""
+        p = self.get_point(name)
+        return p.xid if p else name
     
     # Tipos de dados para escrita
     data_types: Dict[str, int] = field(default_factory=lambda: {
@@ -56,10 +100,6 @@ class PointsConfig:
         "numeric": 3,
         "alphanumeric": 4,
     })
-    
-    def get_xid(self, name: str) -> str:
-        """Retorna XID pelo nome amigável"""
-        return self.points.get(name, name)
 
 
 @dataclass
@@ -213,7 +253,22 @@ class AppConfig:
                 name = key[6:].lower()
                 known_points[name] = value
                 
-        config.points.points = known_points
+        # Converte o dicionário simples known_points em lista de PointDetail
+        for name, xid in known_points.items():
+            # Tenta inferir unidade básica para preencher o objeto inicial
+            unit = ""
+            if "temp" in name or "t_" in name: unit = "°C"
+            elif "press" in name or "pt" in name: unit = "bar"
+            elif "vaz" in name or "ft" in name: unit = "m³/h"
+            elif "freq" in name or "hz" in name: unit = "Hz"
+            elif "cv" in name or "perc" in name: unit = "%"
+            
+            config.points.points_list.append(PointDetail(
+                name=name,
+                xid=xid,
+                friendly_name=name.title(), # Usa o próprio nome como friendly inicial
+                unit=unit
+            ))
 
         # 3. Safety Config (Travas de Segurança)
         # Por enquanto hardcoded, mas poderia vir de arquivo/env

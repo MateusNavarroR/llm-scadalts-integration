@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Requ
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pydantic import BaseModel
 import logging
 import os
@@ -16,8 +16,9 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-from src import AppConfig, ScadaClient, DataCollector, create_agent
+from src import AppConfig, ScadaClient, DataCollector, create_agent, PointsConfig
 from src.llm_agent import LLMAgent, ToolRequest
+from src.point_manager import PointManager, PointDetail
 
 # Configuração de Logging
 logging.basicConfig(level=logging.INFO)
@@ -35,14 +36,48 @@ class ActionRequest(BaseModel):
     tag: str
     value: float
 
+class PointCreateRequest(BaseModel):
+    name: str
+    xid: str
+    friendly_name: str
+    unit: str = ""
+    min_val: float = 0.0
+    max_val: float = 100.0
+
+class PointReorderRequest(BaseModel):
+    points: List[str]
+
 # Estado Global (Singleton)
 class SystemState:
     config: AppConfig = None
     client: ScadaClient = None
     collector: DataCollector = None
     agent: LLMAgent = None
+    point_manager: PointManager = None
 
 state = SystemState()
+
+def refresh_system_config():
+    """Atualiza componentes do sistema com a nova configuração de pontos"""
+    if not state.point_manager or not state.client:
+        return
+
+    # Reconstrói o PointsConfig a partir do gerenciador
+    points_list = state.point_manager.get_all()
+    new_points_config = PointsConfig(points_list=points_list)
+    
+    # Atualiza Cliente SCADA
+    state.client.update_config(new_points_config)
+    
+    # Atualiza Config Global (para referência)
+    if state.config:
+        state.config.points = new_points_config
+        
+    # Atualiza o Coletor de Dados (Hot Reload)
+    if state.collector:
+        state.collector.update_points_list(list(new_points_config.points.keys()))
+        
+    logger.info("Configuração do sistema atualizada (Hot Reload)")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,6 +92,15 @@ async def lifespan(app: FastAPI):
     except SystemExit:
         logger.error("❌ Falha ao carregar configurações.")
         raise RuntimeError("Configuração inválida")
+
+    # 0. Inicializa Gerenciador de Pontos (Persistência)
+    state.point_manager = PointManager()
+    
+    # Sobrescreve a config inicial com o que está no JSON (se houver)
+    # Isso garante que edições salvas persistam sobre o .env
+    current_points = state.point_manager.get_all()
+    if current_points:
+        state.config.points = PointsConfig(points_list=current_points)
 
     # 1. Conecta ao SCADA
     state.client = ScadaClient(state.config.scada, state.config.points)
@@ -99,7 +143,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {"message": "SCADA Agent API Running", "version": "1.1.0"}
+    return {"message": "SCADA Agent API Running", "version": "1.2.0"}
 
 @app.get("/api/status")
 async def get_status():
@@ -113,7 +157,7 @@ async def get_status():
     # Isso garante que o redirecionamento funcione mesmo sem configuração explícita
     if "localhost" in dash_url or "127.0.0.1" in dash_url:
         dash_url = "http://localhost:8000/Scada-LTS/"
-        logger.info(f"🔄 Forçando Dashboard para Proxy: {dash_url}")
+        # logger.info(f"🔄 Forçando Dashboard para Proxy: {dash_url}")
         
     return {
         "scada_connected": state.client.connected if state.client else False,
@@ -122,6 +166,57 @@ async def get_status():
         "provider": state.config.llm.provider if state.config else "unknown",
         "collector": state.collector.get_status() if state.collector else {}
     }
+
+@app.get("/api/config")
+async def get_config():
+    """Retorna configuração detalhada dos sensores disponíveis"""
+    if not state.point_manager:
+        return {"points": {}}
+    
+    # Retorna lista rica para o frontend novo e dict simples para compatibilidade
+    points_list = state.point_manager.get_all()
+    points_dict = {p.name: p.xid for p in points_list} # Compatibilidade
+    
+    return {
+        "points": points_dict,
+        "details": [p.to_dict() for p in points_list] # Nova estrutura rica
+    }
+
+@app.post("/api/points")
+async def add_point(point: PointCreateRequest):
+    """Adiciona um novo ponto de dados"""
+    new_point = PointDetail(
+        name=point.name,
+        xid=point.xid,
+        friendly_name=point.friendly_name,
+        unit=point.unit,
+        min_val=point.min_val,
+        max_val=point.max_val
+    )
+    
+    if state.point_manager.add_point(new_point):
+        refresh_system_config()
+        return {"status": "success", "message": f"Ponto {point.name} adicionado."}
+    else:
+        raise HTTPException(status_code=400, detail="Ponto com esse nome já existe.")
+
+@app.post("/api/points/reorder")
+async def reorder_points(request: PointReorderRequest):
+    """Reordena a lista de pontos"""
+    if state.point_manager.reorder_points(request.points):
+        refresh_system_config()
+        return {"status": "success", "message": "Pontos reordenados."}
+    else:
+        raise HTTPException(status_code=400, detail="Falha ao reordenar.")
+
+@app.delete("/api/points/{name}")
+async def delete_point(name: str):
+    """Remove um ponto de dados"""
+    if state.point_manager.delete_point(name):
+        refresh_system_config()
+        return {"status": "success", "message": f"Ponto {name} removido."}
+    else:
+        raise HTTPException(status_code=404, detail="Ponto não encontrado.")
 
 from starlette.background import BackgroundTask
 
