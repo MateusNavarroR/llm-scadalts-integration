@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { 
   Activity, 
   MessageSquare, 
@@ -401,7 +402,19 @@ function App() {
           {messages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] p-3 rounded-2xl ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-slate-100 text-slate-800 rounded-bl-none border border-slate-200'}`}>
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                <div className="text-sm prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0">
+                  <ReactMarkdown 
+                    components={{
+                      p: ({node, ...props}) => <p className="mb-1 last:mb-0" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc ml-4 mb-2" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal ml-4 mb-2" {...props} />,
+                      li: ({node, ...props}) => <li className="mb-0.5" {...props} />,
+                      strong: ({node, ...props}) => <span className="font-bold" {...props} />,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
                 {msg.tool_request && (
                   <div className="mt-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-slate-800">
                     <p className="text-xs font-bold text-slate-400 mb-2 flex items-center gap-1"><AlertCircle size={12} /> AÇÃO</p>
