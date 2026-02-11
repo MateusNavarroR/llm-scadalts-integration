@@ -70,27 +70,20 @@ scada_agent_project/
 
 ## ⚙️ Configuração
 
+### Gerenciamento de Pontos (Hot Reload)
+A partir da v1.2, o sistema utiliza um **Gerenciador de Pontos Dinâmico**:
+- **points.json**: Arquivo gerado automaticamente que armazena a configuração rica dos sensores (Nome amigável, unidade, limites de segurança).
+- **Prioridade**: Se o arquivo `points.json` existir, ele tem prioridade sobre as definições estáticas do `.env`.
+- **Edição em Tempo Real**: Você pode adicionar ou remover sensores através do Dashboard Web sem precisar reiniciar o servidor.
+
 ### Variáveis de Ambiente (`.env`)
 
-A configuração é feita exclusivamente via variáveis de ambiente para segurança e flexibilidade.
+A configuração básica ainda é feita via `.env` para credenciais e chaves de API.
 
 ```env
 # SCADA-LTS
 SCADA_BASE_URL=http://localhost:8080/Scada-LTS
-SCADA_USER=admin
-SCADA_PASSWORD=sua_senha_segura
-
-# LLM (Escolha um)
-GEMINI_API_KEY=AIzaSy...       # Para Google Gemini
-# ANTHROPIC_API_KEY=sk-ant...  # Para Claude
-
-# Pontos de Dados (Mapeamento XID)
-POINT_CV=DP_123456
-POINT_FREQ1=DP_789012
-POINT_PT1=DP_345678
-POINT_PT2=DP_901234
-POINT_FT1=DP_567890
-```
+...
 
 ### Pontos de Dados (XIDs)
 

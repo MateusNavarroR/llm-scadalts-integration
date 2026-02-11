@@ -1,71 +1,83 @@
 # 🤖 SCADA-LTS Agent Integration
 
-Este projeto integra um sistema SCADA-LTS com um agente inteligente (Claude ou Gemini), permitindo análise em tempo real de dados de sensores e interação conversacional.
+Este projeto integra um sistema SCADA-LTS com um agente inteligente (Claude ou Gemini), permitindo análise em tempo real de dados de sensores, controle assistido por IA e uma interface web moderna.
 
-## 🚀 Uso com uv (Recomendado)
+## 🚀 Novidades na v1.2
 
-Este projeto utiliza **[uv](https://github.com/astral-sh/uv)** para gerenciamento rápido e moderno de dependências.
+A aplicação evoluiu de um script CLI para uma plataforma Full-Stack:
+*   **🌐 Dashboard Web:** Interface em React com gráficos em tempo real.
+*   **🧠 Agente Híbrido:** Chat integrado que entende o contexto do processo.
+*   **🔌 Proxy Inteligente:** Acesso ao SCADA-LTS sem problemas de CORS ou bloqueios de Iframe.
+*   **🛡️ Segurança Reforçada:** Travas operacionais e aprovação humana obrigatória para comandos de escrita.
 
-### Instalação
+---
 
-> **🆕 Novo na instalação?**
-> Para um guia passo-a-passo detalhado cobrindo **Windows e Linux** (desde a instalação do Python), consulte:
-> 📖 [**Guia de Instalação Completo**](docs/INSTALL_GUIDE.md)
+## 📦 Instalação e Configuração
 
-1.  **Instale o uv** (se necessário):
-    ```bash
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    ```
+### Pré-requisitos
+Este projeto utiliza **[uv](https://github.com/astral-sh/uv)** para gerenciamento de dependências Python.
 
-2.  **Configure o ambiente**:
-    Copie o arquivo de exemplo e edite com suas credenciais. **É obrigatório configurar as variáveis para rodar o projeto.**
+> **🆕 Guia para Iniciantes**
+> Se você está instalando em uma máquina nova (Windows ou Linux), siga nosso:
+> 📖 [**Guia de Instalação Detalhado**](docs/INSTALL_GUIDE.md)
+
+### Configuração Rápida
+1.  **Instale o uv**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+2.  **Configure o .env**:
     ```bash
     cp .env.example .env
-    nano .env  # ou use seu editor favorito
+    # Edite com suas credenciais do SCADA e Chaves de API (Gemini/Claude)
     ```
-    
-    No `.env`, você precisará definir:
-    *   URL e credenciais do SCADA-LTS.
-    *   Sua chave de API (`GEMINI_API_KEY` ou `ANTHROPIC_API_KEY`).
-    *   Os XIDs dos pontos de dados (sensores) que deseja monitorar.
 
-### Execução
+---
 
-O `uv` gerencia automaticamente o ambiente virtual. Basta rodar:
+## 🛠️ Como Executar
 
+O sistema é composto por dois módulos principais que devem rodar simultaneamente:
+
+### 1. Backend (API & Proxy)
+O servidor FastAPI gerencia a comunicação com o SCADA, o coletor de dados e o agente IA.
 ```bash
-# Iniciar o agente interativo
-uv run main.py
-
-# Apenas coletar dados (sem IA)
-uv run main.py --collect-only
-
-# Testar conexão com SCADA
-uv run main.py --test-connection
+uv run uvicorn src.server:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## 🧠 Modelos Suportados
+### 2. Frontend (Interface Web)
+A interface React para monitoramento e chat.
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Acesse em: `http://localhost:5173`
 
-O sistema detecta automaticamente qual provedor usar com base na chave presente no `.env`:
+> **Nota:** Você também pode rodar o modo CLI clássico usando `uv run main.py`.
 
-*   **Google Gemini**: `gemini-2.5-flash` (Suporta **Ações Ativas/Escrita**).
-*   **Anthropic Claude**: `claude-sonnet-4-20250514`.
+---
 
-## ⚙️ Capacidades do Agente (Escrita)
+## 🧠 Capacidades do Agente
 
-A partir da v1.1, o agente não apenas observa, mas pode **atuar no sistema**:
+O agente detecta automaticamente o provedor (`GEMINI_API_KEY` ou `ANTHROPIC_API_KEY`) e oferece:
+*   **Monitoramento Ativo:** Analisa tendências e avisa sobre anomalias.
+*   **Comandos de Voz/Texto:** "Qual a pressão atual?" ou "Ajuste a vazão para 50%".
+*   **Segurança (Human-in-the-Loop):** Comandos de escrita exigem confirmação explícita do operador no Dashboard.
 
-*   **Ações:** Ajustar setpoints (ex: "Abra a válvula para 30%").
-*   **Segurança (Human-in-the-Loop):** Nenhuma ação é executada sem aprovação manual do operador no terminal.
-*   **Travas de Segurança:** Limites operacionais configurados no `src/config.py` impedem valores perigosos.
+---
+
+## 📁 Estrutura do Projeto
+
+*   `src/server.py`: Servidor Backend FastAPI (API, WebSockets e Proxy).
+*   `frontend/`: Aplicação React + Vite + Tailwind.
+*   `src/llm_agent.py`: Lógica do Agente (Tool Calling e Prompts).
+*   `src/scada_client.py`: Integração com API REST do SCADA-LTS.
+*   `main.py`: Interface de linha de comando (CLI).
+*   `docs/`: Documentação técnica e manuais.
+
+---
 
 ## 🛠️ Ferramentas de Diagnóstico
 
-*   `test_read_write.py`: Script para testar leitura e escrita em pontos específicos sem usar a IA.
-*   `discover_points.py`: Tenta descobrir automaticamente os XIDs disponíveis no seu SCADA (depende da versão da API).
-*   `debug_gemini.py`: Testa sua chave do Gemini e lista os modelos disponíveis para sua conta.
+*   `test_read_write.py`: Script para testar leitura/escrita rápida em pontos do SCADA.
+*   `PROPOSTA_EVOLUCAO_V2.md`: Detalhes sobre o roadmap e arquitetura futura.
 
-## 📖 Documentação Completa
-
-Para detalhes profundos sobre arquitetura, configuração de pontos e endpoints, consulte a documentação em:
-[docs/PROJETO_SCADA_AGENT.md](docs/PROJETO_SCADA_AGENT.md)
+---
+*Desenvolvido para integração avançada de sistemas industriais e IA.*

@@ -83,6 +83,14 @@ source $HOME/.cargo/env  # (Se o instalador sugerir)
 2.  Baixe a versão **LTS** (Recomendada para a maioria dos usuários).
 3.  Execute o instalador e siga os passos (Next, Next, Install).
 
+Obs: se ainda sim obter erro de permissão ao tentar usar o comando npm no terminal, execute o seguinte comando no terminal
+
+```powershell
+Set-ExecutionPolicy RemotedSigned -Scope CurrentUser
+```
+
+e reinicie o terminal
+
 ### 3. Instalar o Gerenciador (uv)
 Abra o **PowerShell** (como Administrador, de preferência) e execute:
 
