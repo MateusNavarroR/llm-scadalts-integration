@@ -8,6 +8,10 @@ Este projeto utiliza **[uv](https://github.com/astral-sh/uv)** para gerenciament
 
 ### Instalação
 
+> **🆕 Novo na instalação?**
+> Para um guia passo-a-passo detalhado cobrindo **Windows e Linux** (desde a instalação do Python), consulte:
+> 📖 [**Guia de Instalação Completo**](docs/INSTALL_GUIDE.md)
+
 1.  **Instale o uv** (se necessário):
     ```bash
     curl -LsSf https://astral.sh/uv/install.sh | sh
