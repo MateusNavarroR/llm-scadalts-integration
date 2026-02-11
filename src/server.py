@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 # Carrega .env usando caminho absoluto da raiz do projeto
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / ".env", override=True)
 
 from src import AppConfig, ScadaClient, DataCollector, create_agent, PointsConfig
 from src.llm_agent import LLMAgent, ToolRequest
@@ -148,17 +148,14 @@ async def root():
 @app.get("/api/status")
 async def get_status():
     """Status do sistema"""
-    # Se o dashboard_url for igual ao base_url, sugerimos o proxy local
-    # para evitar problemas de X-Frame-Options
-    dash_url = state.config.scada.dashboard_url if state.config else ""
+    # URL Base do SCADA real
     base_url = state.config.scada.base_url if state.config else ""
     
-    # Força o uso do proxy local se a URL configurada for local
-    # Isso garante que o redirecionamento funcione mesmo sem configuração explícita
-    if "localhost" in dash_url or "127.0.0.1" in dash_url:
-        dash_url = "http://localhost:8000/Scada-LTS/"
-        # logger.info(f"🔄 Forçando Dashboard para Proxy: {dash_url}")
-        
+    # Para o Dashboard (Iframe), SEMPRE usamos o proxy local.
+    # Isso resolve problemas de CORS, Mixed Content (HTTP/HTTPS) e X-Frame-Options.
+    # O frontend vai carregar o iframe apontando para http://localhost:8000/Scada-LTS/
+    dash_url = "http://localhost:8000/Scada-LTS/"
+    
     return {
         "scada_connected": state.client.connected if state.client else False,
         "scada_url": base_url,
@@ -322,9 +319,15 @@ async def websocket_endpoint(websocket: WebSocket):
             if state.collector:
                 snapshot = state.collector.get_latest()
                 if snapshot:
+                    # Sanitiza valores NaN para None (JSON null) para evitar erro no Frontend
+                    clean_values = {
+                        k: (v if v == v else None) # v != v é o check mais rápido para NaN em Python
+                        for k, v in snapshot.values.items()
+                    }
+                    
                     data = {
                         "timestamp": snapshot.timestamp.isoformat(),
-                        "values": snapshot.values
+                        "values": clean_values
                     }
                     await websocket.send_json(data)
             

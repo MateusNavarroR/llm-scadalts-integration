@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 
 # Garante que o .env seja carregado antes de qualquer classe ser instanciada
-load_dotenv()
+load_dotenv(override=True)
 
 @dataclass
 class ScadaConfig:

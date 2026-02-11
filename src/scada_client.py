@@ -53,6 +53,12 @@ class ScadaClient:
         """
         try:
             self.session = requests.Session()
+            # Headers para evitar bloqueio de bot/Cloudflare
+            self.session.headers.update({
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json"
+            })
+            
             response = self.session.get(
                 self.config.login_url,
                 timeout=self.config.timeout
